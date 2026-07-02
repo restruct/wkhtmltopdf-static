@@ -120,6 +120,33 @@ build/build.sh --push   # build amd64+arm64 and push manifest to ghcr.io
 
 Server deployment notes (Laravel Forge: pulling the image, docker group for the PHP user, deploy-script line) live in the FUSE project docs: `docs/forge-wkhtmltopdf-docker.md`.
 
+## Native install on Ubuntu servers (verified on 22.04 jammy AND 24.04 noble)
+
+Hard-won gotchas from getting this running on a production server:
+
+- **Do NOT use Ubuntu's own `wkhtmltopdf` package** — it's built against *unpatched* system Qt (different rendering, missing features such as native headers/footers). Remove it if present; its output does not match the patched-Qt build used everywhere else.
+- **Upstream ships no 24.04 (noble) deb** — the jammy deb installs and runs fine on 24.04 once the font dependencies are in place.
+- **`xfonts-75dpi` / `xfonts-base` are not preinstalled** on typical server images, so a bare `dpkg -i` fails on unmet dependencies. Install them first (or rescue a half-installed state with `apt --fix-broken install`).
+- The official deb installs to **`/usr/local/bin/wkhtmltopdf`** (the distro package used `/usr/bin`) — this matches `bootstrap.php`'s Linux candidate order.
+
+```bash
+# 1. Remove the distro package if present (unpatched Qt!)
+sudo apt-get remove wkhtmltopdf && sudo apt autoremove
+
+# 2. Dependencies (the xfonts packages are the ones usually missing)
+sudo apt-get update
+sudo apt-get install -y xfonts-75dpi xfonts-base libfontconfig1 libfreetype6 libjpeg-turbo8 libx11-6 libxext6 libxrender1
+
+# 3. Official final-release deb (jammy build, works on 22.04 and 24.04)
+wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.jammy_amd64.deb
+sudo dpkg -i wkhtmltox_0.12.6.1-3.jammy_amd64.deb
+sudo apt-get install -f        # safety net: configures + pulls any remaining deps
+
+# 4. Verify
+which wkhtmltopdf              # → /usr/local/bin/wkhtmltopdf
+wkhtmltopdf -V                 # → wkhtmltopdf 0.12.6.1 (with patched qt)
+```
+
 ## Package contents
 
 ```
