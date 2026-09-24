@@ -1,0 +1,4 @@
+# Keep build-only files out of dist installs (Packagist zips). The Docker image
+# is built from build/ by the maintainer; consumers pull it from ghcr.io instead.
+/build          export-ignore
+/.gitattributes export-ignore
