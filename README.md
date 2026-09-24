@@ -1,5 +1,8 @@
 # restruct/wkhtmltopdf-static
 
+*Maintained by [Restruct](https://github.com/restruct). If this package saves you time, you can
+[support ongoing maintenance](https://github.com/sponsors/restruct).*
+
 Pre-built **wkhtmltopdf 0.12.6.1 (patched Qt)** for PHP projects — bundled static-ish binaries, a fluent PHP wrapper, and a multi-arch Docker fallback for platforms without a native binary.
 
 > **Why this package exists:** the wkhtmltopdf project is **archived** — 0.12.6.1-3 is the final release, forever. Its binary depends on a patched Qt and a set of aging shared libraries that get harder to satisfy with every new OS release. This package preserves a known-good build in two forms: bundled binaries for platforms that can still run them natively, and a frozen Ubuntu 22.04 Docker image (`ghcr.io/restruct/wkhtmltopdf:0.12.6`, amd64+arm64) for everything else.
@@ -161,4 +164,12 @@ build/                   Dockerfile + multi-arch build script
 
 ## License
 
-LGPL-3.0-only — matching upstream [wkhtmltopdf](https://github.com/wkhtmltopdf/wkhtmltopdf)'s license, which permits redistribution of the bundled binaries. See [LICENSE](LICENSE).
+- Bundled binaries (`x64/`) and the Docker image: wkhtmltopdf 0.12.6.1 (patched Qt), prebuilt by the
+  upstream project, not by us. wkhtmltopdf is Copyright its authors and licensed under the
+  [LGPL-3.0](https://github.com/wkhtmltopdf/wkhtmltopdf/blob/master/LICENSE); the patched Qt it
+  contains is licensed separately by its authors under the LGPL. Source:
+  https://github.com/wkhtmltopdf/wkhtmltopdf and https://github.com/wkhtmltopdf/qt.
+- Wrapper code (`bootstrap.php`, `src/`, `build/`): LGPL-3.0-only, as declared in `composer.json`,
+  matching upstream.
+
+See [LICENSE](LICENSE) for the LGPL-3.0 text.
