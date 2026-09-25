@@ -164,12 +164,14 @@ build/                   Dockerfile + multi-arch build script
 
 ## License
 
+- Wrapper code (`bootstrap.php`, `src/`, `build/`): MIT (Copyright Restruct). Up to 1.0.1 the
+  wrapper was LGPL-3.0-only; from 1.0.2 it is MIT.
 - Bundled binaries (`x64/`) and the Docker image: wkhtmltopdf 0.12.6.1 (patched Qt), prebuilt by the
-  upstream project, not by us. wkhtmltopdf is Copyright its authors and licensed under the
-  [LGPL-3.0](https://github.com/wkhtmltopdf/wkhtmltopdf/blob/master/LICENSE); the patched Qt it
-  contains is licensed separately by its authors under the LGPL. Source:
+  upstream project, not by us, and not covered by the MIT licence. wkhtmltopdf is Copyright its
+  authors and licensed under the GNU LGPL version 3 or later; the patched Qt 4.8.7 it contains is
+  licensed by The Qt Company under the GNU LGPL version 2.1 or 3 with the Qt LGPL Exception 1.1.
+  The licence texts ship in [`licenses/`](licenses/): `COPYING.LESSER` (LGPL-3.0), `COPYING`
+  (GPL-3.0, which the LGPL-3.0 builds on) and Qt's own texts in `licenses/qt/`. Source:
   https://github.com/wkhtmltopdf/wkhtmltopdf and https://github.com/wkhtmltopdf/qt.
-- Wrapper code (`bootstrap.php`, `src/`, `build/`): LGPL-3.0-only, as declared in `composer.json`,
-  matching upstream.
 
-See [LICENSE](LICENSE) for the LGPL-3.0 text.
+`composer.json` declares this as `(MIT AND LGPL-3.0-or-later)`. See [LICENSE](LICENSE) for the full terms.
