@@ -121,7 +121,7 @@ build/build.sh --push   # build amd64+arm64 and push manifest to ghcr.io
                         # (requires: docker login ghcr.io with a write:packages token)
 ```
 
-Server deployment notes (Laravel Forge: pulling the image, docker group for the PHP user, deploy-script line) live in the FUSE project docs: `docs/forge-wkhtmltopdf-docker.md`.
+Server deployment (pulling the image, adding the PHP user to the docker group, a deploy-script line) is outlined in [HOW-IT-WORKS.md](HOW-IT-WORKS.md#deployment-on-a-newupgraded-server-the-insurance-policy-activated); keep host-specific notes in your own project docs.
 
 ## Native install on Ubuntu servers (verified on 22.04 jammy AND 24.04 noble)
 

@@ -50,7 +50,7 @@ So when the Docker path is active: **one short-lived throwaway container per con
 
 ### What each machine actually does (state as of July 2026)
 
-- **Forge production server** (`node2505.restruct.cloud`, x86_64, Ubuntu 24.04): has a **native** wkhtmltopdf 0.12.6.1 at `/usr/local/bin/wkhtmltopdf` — every PDF runs as a plain process. Docker is **not even installed** there. The image is the insurance policy for the day an OS upgrade breaks the native binary: install Docker, pull the image, done — the code path already exists.
+- **Production server** (`your-server`, x86_64, Ubuntu 24.04): has a **native** wkhtmltopdf 0.12.6.1 at `/usr/local/bin/wkhtmltopdf` — every PDF runs as a plain process. Docker is **not even installed** there. The image is the insurance policy for the day an OS upgrade breaks the native binary: install Docker, pull the image, done — the code path already exists.
 - **Mac dev (Apple Silicon)**: the bootstrap finds the bundled `x64/mac` binary, which runs via **Rosetta 2** (Apple's transparent Intel→ARM translation). So local dev also uses the native-binary path by default. To force the Docker path locally (native arm64, byte-identical environment to what production-via-Docker would use): make `WKHTMLTOPDF_PATH` unresolvable and let the image default kick in.
 
 ## Multi-arch: one name, two builds
@@ -109,7 +109,7 @@ If/when the native binary stops working on a server:
 ```bash
 # as root: install docker (Ubuntu: apt-get install docker.io, or Forge's Docker option)
 docker pull ghcr.io/restruct/wkhtmltopdf:0.12.6     # no auth needed, image is public
-usermod -aG docker forge && systemctl restart php8.x-fpm
+usermod -aG docker <php-user> && systemctl restart php8.x-fpm   # <php-user>: the user PHP-FPM runs as, e.g. forge on Laravel Forge
 ```
 
-Then either set `WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6` in `.env`, or on Linux just remove/let the native path fail — the bootstrap defaults the image name automatically. Add `docker pull ... || true` to the deploy script to keep it fresh. Full Forge walkthrough: FUSE `docs/forge-wkhtmltopdf-docker.md`.
+Then either set `WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6` in `.env`, or on Linux just remove/let the native path fail — the bootstrap defaults the image name automatically. Add `docker pull ... || true` to the deploy script to keep it fresh. Keep a host-specific walkthrough (e.g. for Laravel Forge) in your own project docs.
