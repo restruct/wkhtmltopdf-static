@@ -2,3 +2,7 @@
 # is built from build/ by the maintainer; consumers pull it from ghcr.io instead.
 /build          export-ignore
 /.gitattributes export-ignore
+# Test suite and dev config stay out of dist installs too
+/tests             export-ignore
+/phpunit.xml.dist  export-ignore
+/.gitignore        export-ignore

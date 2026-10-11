@@ -366,6 +366,8 @@ class WkhtmltoPdf
      */
     public function generateFromHtml(string $html, string $outputFile): WkhtmltoPdfResult
     {
+        # Before the temp file is written, so a failure here leaves nothing behind
+        $this->ensureOutputDirectory($outputFile);
         $tmpFile = $this->writeHtmlToTempFile($html);
 
         try {
@@ -375,7 +377,7 @@ class WkhtmltoPdf
 
             return WkhtmltoPdfStatic::run($args, $this->timeout);
         } finally {
-            @unlink($tmpFile);
+            $this->removeTempFile($tmpFile, '.html');
         }
     }
 
@@ -388,6 +390,8 @@ class WkhtmltoPdf
      */
     public function generateFromUrl(string $url, string $outputFile): WkhtmltoPdfResult
     {
+        $this->ensureOutputDirectory($outputFile);
+
         $args = $this->buildArgs();
         $args[] = $url;
         $args[] = $outputFile;
@@ -404,10 +408,14 @@ class WkhtmltoPdf
      */
     public function getOutputFromHtml(string $html): string
     {
-        $tmpFile = $this->writeHtmlToTempFile($html);
-        $tmpOutput = tempnam(sys_get_temp_dir(), 'wkpdf_') . '.pdf';
+        # Created inside the try, so whichever already exists is removed when the other one fails
+        $tmpFile = null;
+        $tmpOutput = null;
 
         try {
+            $tmpFile = $this->writeHtmlToTempFile($html);
+            $tmpOutput = $this->createTempPath('wkpdf_', '.pdf');
+
             $args = $this->buildArgs();
             $args[] = $tmpFile;
             $args[] = $tmpOutput;
@@ -422,8 +430,12 @@ class WkhtmltoPdf
 
             return file_get_contents($tmpOutput);
         } finally {
-            @unlink($tmpFile);
-            @unlink($tmpOutput);
+            if ($tmpFile !== null) {
+                $this->removeTempFile($tmpFile, '.html');
+            }
+            if ($tmpOutput !== null) {
+                $this->removeTempFile($tmpOutput, '.pdf');
+            }
         }
     }
 
@@ -436,7 +448,7 @@ class WkhtmltoPdf
      */
     public function getOutputFromUrl(string $url): string
     {
-        $tmpOutput = tempnam(sys_get_temp_dir(), 'wkpdf_') . '.pdf';
+        $tmpOutput = $this->createTempPath('wkpdf_', '.pdf');
 
         try {
             $args = $this->buildArgs();
@@ -453,7 +465,7 @@ class WkhtmltoPdf
 
             return file_get_contents($tmpOutput);
         } finally {
-            @unlink($tmpOutput);
+            $this->removeTempFile($tmpOutput, '.pdf');
         }
     }
 
@@ -490,9 +502,65 @@ class WkhtmltoPdf
      */
     private function writeHtmlToTempFile(string $html): string
     {
-        $tmpFile = tempnam(sys_get_temp_dir(), 'wkhtml_') . '.html';
+        $tmpFile = $this->createTempPath('wkhtml_', '.html');
         file_put_contents($tmpFile, $html);
 
         return $tmpFile;
+    }
+
+    /**
+     * Reserve a unique temp path that ends in $suffix.
+     *
+     * tempnam() cannot add a suffix, and wkhtmltopdf needs one (.html input, .pdf output).
+     * tempnam() also CREATES the bare file it names. That empty file is kept as the
+     * reservation, so no other tempnam() call can hand out the same base and with it the
+     * same suffixed path, and removeTempFile() deletes both. Before 1.0.3 only the
+     * suffixed file was deleted, and every render leaked one empty file per temp path.
+     *
+     * @throws \RuntimeException if no temp file can be created
+     */
+    private function createTempPath(string $prefix, string $suffix): string
+    {
+        $base = tempnam(sys_get_temp_dir(), $prefix);
+        if ($base === false) {
+            throw new \RuntimeException('Could not create a temp file in ' . sys_get_temp_dir());
+        }
+
+        return $base . $suffix;
+    }
+
+    /**
+     * Delete a path from createTempPath() together with its bare tempnam() reservation.
+     */
+    private function removeTempFile(string $path, string $suffix): void
+    {
+        @unlink($path);
+
+        # The reservation is the same path without the suffix createTempPath() appended
+        if (str_ends_with($path, $suffix)) {
+            @unlink(substr($path, 0, -strlen($suffix)));
+        }
+    }
+
+    /**
+     * Create the output file's directory if it does not exist yet.
+     *
+     * wkhtmltopdf does not create it: it exits 1 with "Unable to write to destination".
+     * knp-snappy, which this class replaces, created it before rendering, so callers that
+     * migrated from Snappy rely on that.
+     *
+     * @throws \RuntimeException if the directory cannot be created
+     */
+    private function ensureOutputDirectory(string $outputFile): void
+    {
+        $dir = dirname($outputFile);
+        if (is_dir($dir)) {
+            return;
+        }
+
+        # Re-check is_dir() after a failed mkdir(): a parallel render may have created it meanwhile
+        if (!@mkdir($dir, 0777, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Could not create output directory: $dir");
+        }
     }
 }
