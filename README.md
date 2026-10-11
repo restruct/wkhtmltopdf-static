@@ -63,6 +63,11 @@ WkhtmltoPdf::create()->setOptions($options)->generateFromHtml($html, $file);
 
 No binary path needed — resolution is automatic (see below).
 
+Like Snappy, `generateFromHtml()` and `generateFromUrl()` create the output file's directory when it
+does not exist yet, and throw a `RuntimeException` when it cannot be created (from 1.0.3). Temp files
+(the HTML input and the `getOutput*()` PDF) are written to `sys_get_temp_dir()` and removed after
+each call.
+
 ## How execution works: binary first, Docker fallback
 
 `WkhtmltoPdfStatic::run()` picks a strategy per call:
@@ -160,7 +165,18 @@ src/
   WkhtmltoPdfResult.php  output/errorOutput/exitCode value object
 x64/mac/, x64/linux/     bundled 0.12.6.1 patched-Qt binaries
 build/                   Dockerfile + multi-arch build script
+tests/                   PHPUnit suite (not in dist installs)
 ```
+
+## Running the tests
+
+```bash
+composer install
+vendor/bin/phpunit
+```
+
+The render tests need a working wkhtmltopdf (the bundled binary or the Docker image) and are
+skipped without one.
 
 ## License
 
