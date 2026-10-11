@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (recommended: 1.0.3)
+## 1.0.3 (2026-10-11)
 
 ### Fixed
 

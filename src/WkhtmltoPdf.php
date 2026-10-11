@@ -408,10 +408,14 @@ class WkhtmltoPdf
      */
     public function getOutputFromHtml(string $html): string
     {
-        $tmpFile = $this->writeHtmlToTempFile($html);
-        $tmpOutput = $this->createTempPath('wkpdf_', '.pdf');
+        # Created inside the try, so whichever already exists is removed when the other one fails
+        $tmpFile = null;
+        $tmpOutput = null;
 
         try {
+            $tmpFile = $this->writeHtmlToTempFile($html);
+            $tmpOutput = $this->createTempPath('wkpdf_', '.pdf');
+
             $args = $this->buildArgs();
             $args[] = $tmpFile;
             $args[] = $tmpOutput;
@@ -426,8 +430,12 @@ class WkhtmltoPdf
 
             return file_get_contents($tmpOutput);
         } finally {
-            $this->removeTempFile($tmpFile, '.html');
-            $this->removeTempFile($tmpOutput, '.pdf');
+            if ($tmpFile !== null) {
+                $this->removeTempFile($tmpFile, '.html');
+            }
+            if ($tmpOutput !== null) {
+                $this->removeTempFile($tmpOutput, '.pdf');
+            }
         }
     }
 
