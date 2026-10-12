@@ -23,6 +23,9 @@ class WkhtmltoPdf
     /** @var array<string, string|bool|int|float> Accumulated options */
     private array $options = [];
 
+    /** @var string[] Paths for repeated `--allow <path>` flags, see allowPath() */
+    private array $allowPaths = [];
+
     /** @var int|null Custom timeout in seconds */
     private ?int $timeout = null;
 
@@ -128,10 +131,27 @@ class WkhtmltoPdf
     /**
      * Allow wkhtmltopdf to access local files (CSS, images).
      * Required when HTML references local resources.
+     *
+     * This opens the whole filesystem to the HTML, including file:// URLs in content you did
+     * not write. Prefer allowPath() for the directories you need. Refused (exception at render
+     * time) when WKHTMLTOPDF_LOCAL_FILE_ACCESS is 'allowlist' or 'deny'.
      */
     public function enableLocalFileAccess(): self
     {
         $this->options['enable-local-file-access'] = true;
+
+        return $this;
+    }
+
+    /**
+     * Let the HTML load local files from this file or directory only (`--allow <path>`).
+     *
+     * Repeatable, one call per path. wkhtmltopdf 0.12.6 blocks other local files by default,
+     * and a blocked one makes the render exit 1. Refused when WKHTMLTOPDF_LOCAL_FILE_ACCESS is 'deny'.
+     */
+    public function allowPath(string $path): self
+    {
+        $this->allowPaths[] = $path;
 
         return $this;
     }
@@ -489,6 +509,12 @@ class WkhtmltoPdf
                 $args[] = '--' . $name;
                 $args[] = (string) $value;
             }
+        }
+
+        # A separate list, because the options array holds one value per name and --allow repeats
+        foreach ($this->allowPaths as $path) {
+            $args[] = '--allow';
+            $args[] = $path;
         }
 
         return $args;

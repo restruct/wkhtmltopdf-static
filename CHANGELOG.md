@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased (1.2.0)
+
+### Security
+
+- Docker strategy: each container now runs as the PHP process's own user (`--user uid:gid`, from
+  the posix extension or `id`), with `--init` and a unique `--name`. When a render times out,
+  throws, or PHP shuts down mid-render, the container is removed with `docker rm -f`; before, a
+  timeout only stopped the `docker` CLI and the container kept running, and its root-owned output
+  could not be deleted from a sticky `/tmp` (#3).
+- The default Docker image is pinned by the digest of its multi-platform index:
+  `ghcr.io/restruct/wkhtmltopdf:0.12.6@sha256:3b95bf589c125dbcbbb0e33619d1241953d6da019d80272d85858816d01c8396`.
+  A changed `0.12.6` tag can no longer change what runs. The README shows how to verify it.
+- New `WKHTMLTOPDF_LOCAL_FILE_ACCESS` (constant or env): `permissive` (default, unchanged
+  behaviour), `allowlist` (refuses `--enable-local-file-access`, accepts `--allow`) or `deny`
+  (refuses both). The strict values also pass `--disable-local-file-access`. Refused options throw
+  an `InvalidArgumentException` before anything runs; an unknown value throws.
+- README: new "Security" section (render only HTML you generate, never arbitrary user URLs, a
+  frozen 2020-era engine without security fixes; `docker` group membership is root-equivalent,
+  rootless Docker).
+
+### Added
+
+- `WkhtmltoPdf::allowPath($path)`: repeatable `--allow <path>`, the narrow alternative to
+  `enableLocalFileAccess()`.
+- `WKHTMLTOPDF_DOCKER_NETWORK` (constant or env): passed as `docker run --network`, e.g. `none`.
+  Empty (default) keeps Docker's default network.
+- `WkhtmltoPdfStatic::buildDockerCommand()`, `applyLocalFileAccessPolicy()`,
+  `getLocalFileAccessMode()` and `getDockerNetwork()`.
+- `build/Dockerfile` installs a `.deb` from `build/debs/` when present instead of downloading it,
+  and checks the sha256 of the `.deb` either way. HOW-IT-WORKS describes the backup assets on the
+  GitHub release (both upstream `.deb` files and the image as an OCI archive) and how to restore or
+  rebuild from them.
+
 ## 1.1.0 (2026-10-12)
 
 ### Changed

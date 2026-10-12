@@ -25,7 +25,7 @@ use Restruct\WkhtmltoPdf\WkhtmltoPdf;
 // HTML string → PDF file
 $result = WkhtmltoPdf::create()
     ->margins('0px', '0px', '0px', '0px')
-    ->enableLocalFileAccess()       // required when HTML references local CSS/images
+    ->allowPath('/path/to/assets')  // when HTML references local CSS/images, see "Security"
     ->disableSmartShrinking()       // fixes 0.12.4→0.12.6 scaling differences
     ->generateFromHtml($html, '/path/to/output.pdf');
 
@@ -73,7 +73,7 @@ each call.
 `WkhtmltoPdfStatic::run()` picks a strategy per call:
 
 1. **`binary`** — if a wkhtmltopdf binary is resolved, it runs as a plain OS process. Fastest; Docker not involved at all.
-2. **`docker`** — otherwise, if a Docker image is configured **and** the Docker daemon responds, each call runs a throwaway container: `docker run --rm -v /tmp:/tmp <image> <args>`. The system temp dir is volume-mounted so input HTML and output PDF are visible to both host and container. ~100–300 ms startup overhead per call, no persistent state.
+2. **`docker`**: otherwise, if a Docker image is configured **and** the Docker daemon responds, each call runs a throwaway container: `docker run --rm --init --name wkhtmltopdf-<random> --user <uid>:<gid> -v /tmp:/tmp <image> <args>`. The system temp dir is volume-mounted so input HTML and output PDF are visible to both host and container. ~100 to 300 ms startup overhead per call, no persistent state. See [Docker hardening](#docker-hardening) for what the extra flags do (from 1.2.0).
 3. Neither available → `RuntimeException`.
 
 ```php
@@ -91,7 +91,9 @@ WkhtmltoPdfStatic::version();       // "wkhtmltopdf 0.12.6.1 (with patched qt)"
 | Constant / env var | Resolution order |
 |---|---|
 | `WKHTMLTOPDF_PATH` | 1. pre-defined constant → 2. env var → 3. **macOS:** bundled `x64/mac` binary (runs on Apple Silicon via Rosetta 2) → 4. **Linux:** `/usr/local/bin/wkhtmltopdf` (system install), then bundled `x64/linux` binary |
-| `WKHTMLTOPDF_DOCKER_IMAGE` | 1. pre-defined constant → 2. env var → 3. **Linux default:** `ghcr.io/restruct/wkhtmltopdf:0.12.6` |
+| `WKHTMLTOPDF_DOCKER_IMAGE` | 1. pre-defined constant → 2. env var → 3. **Linux default:** `ghcr.io/restruct/wkhtmltopdf:0.12.6@sha256:3b95bf589c125dbcbbb0e33619d1241953d6da019d80272d85858816d01c8396` (pinned by digest from 1.2.0, see [The Docker image](#the-docker-image)) |
+| `WKHTMLTOPDF_DOCKER_NETWORK` | 1. pre-defined constant → 2. env var → 3. empty: Docker's default network (from 1.2.0) |
+| `WKHTMLTOPDF_LOCAL_FILE_ACCESS` | 1. pre-defined constant → 2. env var → 3. `permissive` (from 1.2.0, see [Local file access](#local-file-access)) |
 
 Typical `.env` on a server:
 
@@ -100,7 +102,9 @@ Typical `.env` on a server:
 WKHTMLTOPDF_PATH=/usr/local/bin/wkhtmltopdf
 
 # Option B: Docker (for hosts where the native libs are unavailable/broken)
-WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6
+# (pinned by digest from 1.2.0; the plain tag still works but follows whatever the tag points at)
+# WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6
+WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6@sha256:3b95bf589c125dbcbbb0e33619d1241953d6da019d80272d85858816d01c8396
 ```
 
 If both resolve, the native binary wins.
@@ -112,6 +116,73 @@ executable but cannot start, for example because a shared library is missing, is
 next candidate in the table above is tried, and if none starts the Docker strategy is used. Up to
 1.0.3 only the exec bit was checked, so such a binary was chosen anyway and every render failed.
 `WkhtmltoPdfStatic::probeBinary($path)` runs the same check by hand.
+
+## Security
+
+wkhtmltopdf is a browser. It runs JavaScript, follows URLs and reads files, with a QtWebKit engine
+that was frozen when the project was archived in 2020 and gets no security fixes. Treat it like
+that:
+
+- **Render only HTML you generate yourself.** Escape every user-supplied value that goes into it,
+  as you would for a web page; injected markup can load URLs and local files.
+- **Never render arbitrary user-supplied URLs** with `generateFromUrl()`/`getOutputFromUrl()`. The
+  server would fetch whatever the URL points at, including internal addresses (SSRF) and, with
+  local file access on, local files.
+- Call `disableJavascript()` when your HTML needs no JavaScript.
+
+### Local file access
+
+wkhtmltopdf 0.12.6 blocks a page from loading other local files by default, and a blocked file
+makes the render exit 1 (checked with the bundled binary). The input HTML is written to a temp
+file, so this also covers relative URLs in it. You have two ways to allow local files:
+
+- `allowPath($dir)` (from 1.2.0) passes `--allow <dir>`: only files in that file or directory can
+  be loaded. Repeatable, one call per path. Prefer this.
+- `enableLocalFileAccess()` passes `--enable-local-file-access`: the HTML can read **any** file the
+  PHP user can read, through any `file://` URL that ends up in it.
+
+`WKHTMLTOPDF_LOCAL_FILE_ACCESS` lets a project rule out the wide option (from 1.2.0):
+
+| Value | `--enable-local-file-access` | `--allow` | `--disable-local-file-access` added |
+|---|---|---|---|
+| `permissive` (default) | passed | passed | no |
+| `allowlist` | refused | passed | yes |
+| `deny` | refused | refused | yes |
+
+Refused means `WkhtmltoPdfStatic::run()`, and with it every render method, throws an
+`InvalidArgumentException` before anything is started. An unknown value throws a
+`RuntimeException`, so a typo never means `permissive`. The added `--disable-local-file-access`
+matters for a binary other than the bundled one: wkhtmltopdf 0.12.5 and older allow local file
+access by default. The default stays `permissive` in 1.x so existing renders that rely on
+`enable-local-file-access` keep working; consider setting `allowlist` and moving to `allowPath()`.
+
+```env
+WKHTMLTOPDF_LOCAL_FILE_ACCESS=allowlist
+```
+
+### Docker hardening
+
+From 1.2.0 the Docker strategy runs each container with:
+
+- `--user <uid>:<gid>` of the PHP process (from the posix extension, else `id -u`/`id -g`). The
+  image has no `USER`, so before 1.2.0 the container ran as root and the PDF it wrote into the
+  shared temp dir was root-owned, which the PHP user could not delete from a sticky `/tmp` (#3).
+- `--init`, so signals reach wkhtmltopdf and stray child processes are reaped.
+- `--name wkhtmltopdf-<random>`. When a render times out, throws, or PHP shuts down mid-render
+  (including on a fatal error such as `max_execution_time`), the container is removed with
+  `docker rm -f <name>`. Before 1.2.0 a timeout only stopped the `docker` CLI and the container
+  kept running (#3). A PHP process killed with SIGKILL runs no cleanup at all; that container
+  lives until wkhtmltopdf exits.
+- `--network <name>` only when `WKHTMLTOPDF_DOCKER_NETWORK` is set. The default network stays, so
+  HTML can load http(s) assets. `WKHTMLTOPDF_DOCKER_NETWORK=none` cuts the container off from the
+  network, for HTML that loads nothing remote.
+
+**Membership of the `docker` group is root-equivalent.** Whoever can talk to the Docker daemon can
+start a container that mounts the host's `/` and change anything on it. Adding the PHP user to
+that group therefore gives PHP (and anything that gets code execution in PHP) root on the host.
+Prefer the native binary where it runs. Where Docker is needed, consider
+[rootless Docker](https://docs.docker.com/engine/security/rootless/), whose daemon runs as an
+unprivileged user, so the socket grants that user's rights instead of root.
 
 ## Platform support
 
@@ -180,7 +251,31 @@ test suite against the bundled binary on Ubuntu 24.04 with exactly the apt line 
 
 ## The Docker image
 
-`ghcr.io/restruct/wkhtmltopdf:0.12.6` — public, multi-arch (`linux/amd64` + `linux/arm64`). Ubuntu 22.04 with the official final wkhtmltopdf deb and all runtime libraries frozen in. Built from [`build/Dockerfile`](build/Dockerfile):
+`ghcr.io/restruct/wkhtmltopdf:0.12.6`: public, multi-arch (`linux/amd64` + `linux/arm64`). Ubuntu 22.04 with the official final wkhtmltopdf deb and all runtime libraries frozen in.
+
+From 1.2.0 the default reference is pinned to the digest of the multi-platform index:
+
+```
+ghcr.io/restruct/wkhtmltopdf:0.12.6@sha256:3b95bf589c125dbcbbb0e33619d1241953d6da019d80272d85858816d01c8396
+```
+
+With a digest, Docker pulls exactly that index and ignores the tag, so re-pushing (or hijacking)
+the `0.12.6` tag cannot change what runs. Each platform's manifest is itself content-addressed
+from the index, so one digest covers amd64 and arm64. To check what the registry serves:
+
+```bash
+docker buildx imagetools inspect ghcr.io/restruct/wkhtmltopdf:0.12.6 | grep '^Digest'
+# or without Docker:
+TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:restruct/wkhtmltopdf:pull" | sed 's/.*"token":"\([^"]*\)".*/\1/')
+curl -sI -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.oci.image.index.v1+json" \
+  https://ghcr.io/v2/restruct/wkhtmltopdf/manifests/0.12.6 | grep -i docker-content-digest
+```
+
+Both must print the digest above. If you set `WKHTMLTOPDF_DOCKER_IMAGE` yourself, pin it the same
+way. Backups of the image and the `.deb` files it was built from, and how to restore or rebuild
+from them, are described in [HOW-IT-WORKS.md](HOW-IT-WORKS.md#backups-restore-and-rebuild).
+
+Built from [`build/Dockerfile`](build/Dockerfile):
 
 ```bash
 build/build.sh          # build native-arch image locally (for testing)
@@ -220,7 +315,7 @@ wkhtmltopdf -V                 # → wkhtmltopdf 0.12.6.1 (with patched qt)
 ## Package contents
 
 ```
-bootstrap.php        constant resolution (WKHTMLTOPDF_PATH / _DOCKER_IMAGE)
+bootstrap.php        constant resolution (WKHTMLTOPDF_PATH / _DOCKER_IMAGE / _DOCKER_NETWORK / _LOCAL_FILE_ACCESS)
 src/
   WkhtmltoPdf.php        fluent HTML→PDF API (Snappy replacement)
   WkhtmltoPdfStatic.php  strategy resolution + process execution

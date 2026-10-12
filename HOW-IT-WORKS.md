@@ -38,6 +38,8 @@ PDF requested
  │    → YES: run it as a plain OS process. Docker is not involved AT ALL.
  └─ NO: WKHTMLTOPDF_DOCKER_IMAGE set and docker daemon responding?
       → YES: docker run --rm -v /tmp:/tmp ghcr.io/restruct/wkhtmltopdf:0.12.6 in.html out.pdf
+             (from 1.2.0 also --init --name wkhtmltopdf-<random> --user <php uid>:<gid>, and the
+             image is pinned by digest; see README "Docker hardening")
              1. Fresh container spins up from the image (~100–300 ms overhead)
              2. wkhtmltopdf inside reads /tmp/in.html — the -v flag maps the host's
                 temp dir into the container so both see the same files
@@ -112,4 +114,91 @@ docker pull ghcr.io/restruct/wkhtmltopdf:0.12.6     # no auth needed, image is p
 usermod -aG docker <php-user> && systemctl restart php8.x-fpm   # <php-user>: the user PHP-FPM runs as, e.g. forge on Laravel Forge
 ```
 
-Then either set `WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6` in `.env`, or on Linux just remove/let the native path fail — the bootstrap defaults the image name automatically. Add `docker pull ... || true` to the deploy script to keep it fresh. Keep a host-specific walkthrough (e.g. for Laravel Forge) in your own project docs.
+Know what that `usermod` grants: **membership of the `docker` group is root-equivalent**. Anyone
+who can talk to the daemon can start a container that mounts the host's `/`, so the PHP user (and
+any code that manages to run as it) effectively becomes root. Rootless Docker avoids that: its
+daemon runs as an ordinary user, and talking to it only grants that user's rights. See the
+README section "Docker hardening".
+
+Then either set `WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6@sha256:3b95bf589c125dbcbbb0e33619d1241953d6da019d80272d85858816d01c8396` in `.env`, or on Linux just remove/let the native path fail: the bootstrap defaults the image name automatically (pinned by that digest from 1.2.0). Add `docker pull ... || true` to the deploy script to keep it fresh. Keep a host-specific walkthrough (e.g. for Laravel Forge) in your own project docs.
+
+## Backups, restore and rebuild
+
+The image and the upstream `.deb` files live on servers we do not control (ghcr.io, the archived
+wkhtmltopdf GitHub project). A copy of each is attached to this package's GitHub release 1.2.0
+as assets, so a lost registry or upstream release does not mean a lost wkhtmltopdf:
+
+| Asset | What it is |
+|---|---|
+| `wkhtmltox_0.12.6.1-3.jammy_amd64.deb` | upstream final release, Ubuntu 22.04, amd64 |
+| `wkhtmltox_0.12.6.1-3.jammy_arm64.deb` | upstream final release, Ubuntu 22.04, arm64 |
+| `wkhtmltopdf-0.12.6-oci.tar` | the published image, both platforms, as an OCI image layout |
+| `SHA256SUMS` | sha256 of the three files above |
+
+Check them first: `sha256sum -c SHA256SUMS`.
+
+### How the image tarball was made
+
+Without a Docker daemon, straight from the registry HTTP API: an anonymous pull token, then the
+index for the tag, every manifest the index lists (both platforms and their build attestations)
+and every blob those manifests reference. Each download was checked against its sha256 digest
+before it was written, and checked again from disk afterwards. The tarball holds:
+
+- `oci-layout`, `index.json` and `blobs/sha256/*`: an OCI image layout. `index.json` points at the
+  registry's original index, byte for byte, so its digest is the pinned one
+  (`sha256:3b95bf58...` in full in the README) and names it `ghcr.io/restruct/wkhtmltopdf:0.12.6`.
+- `manifest.json`: the format the classic Docker image store reads, listing the amd64 and arm64
+  images as `ghcr.io/restruct/wkhtmltopdf:0.12.6-amd64` and `:0.12.6-arm64`. It points at the
+  same blobs, nothing is stored twice.
+
+### Restore the image into Docker
+
+`docker load` reads one of the two formats, depending on the daemon's image store:
+
+- **containerd image store** (the default for fresh installs from Docker Engine 29; switched on by
+  hand on older engines): it reads the OCI layout and loads the image as
+  `ghcr.io/restruct/wkhtmltopdf:0.12.6` with both platforms. From Docker 28,
+  `docker load --platform linux/amd64 -i ...` loads one platform only.
+- **classic image store** (the default up to Docker Engine 28, and on upgraded installs): it
+  ignores the OCI layout and reads `manifest.json`, so you get the two `-amd64`/`-arm64` tags.
+  Give the one for your CPU the plain tag:
+  `docker tag ghcr.io/restruct/wkhtmltopdf:0.12.6-amd64 ghcr.io/restruct/wkhtmltopdf:0.12.6`.
+
+```bash
+docker info --format '{{.DriverStatus}}'      # mentions io.containerd.snapshotter with the containerd store
+docker load -i wkhtmltopdf-0.12.6-oci.tar
+docker run --rm ghcr.io/restruct/wkhtmltopdf:0.12.6 -V
+```
+
+After a local load, set `WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6` (the tag,
+without the digest). The classic store records no registry digest for a loaded image, so a
+reference with `@sha256:` makes Docker try to pull it, which fails when the registry is gone.
+
+Alternative with [skopeo](https://github.com/containers/skopeo), which needs no daemon and can
+push the image into any registry you run, digest unchanged:
+
+```bash
+skopeo copy --all --preserve-digests oci-archive:wkhtmltopdf-0.12.6-oci.tar:0.12.6 docker://registry.example.com/wkhtmltopdf:0.12.6
+# or into the local Docker daemon (host platform only):
+skopeo copy oci-archive:wkhtmltopdf-0.12.6-oci.tar:0.12.6 docker-daemon:ghcr.io/restruct/wkhtmltopdf:0.12.6
+```
+
+From a registry the digest pin keeps working:
+`WKHTMLTOPDF_DOCKER_IMAGE=registry.example.com/wkhtmltopdf:0.12.6@sha256:3b95bf58...` (full digest
+from the README).
+
+### Rebuild the image from the backed-up .deb
+
+`build/Dockerfile` uses a `.deb` from `build/debs/` when one is there, and downloads it from the
+upstream release otherwise. Either way the file must match the sha256 pinned in the Dockerfile, or
+the build stops.
+
+```bash
+cp wkhtmltox_0.12.6.1-3.jammy_*.deb build/debs/
+build/build.sh             # native-arch test build
+build/build.sh --push      # both platforms, to the registry
+```
+
+The rebuild still pulls `ubuntu:22.04` and its packages from apt, so it is not an offline build.
+A rebuilt image is a new image with a new digest: update the pinned default in `bootstrap.php`
+and the README, and make a new backup.
