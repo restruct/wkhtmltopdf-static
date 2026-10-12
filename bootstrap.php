@@ -16,6 +16,10 @@
  * 3. macOS: bundled x64/mac/wkhtmltopdf
  * 4. Linux: system-installed /usr/local/bin/wkhtmltopdf → bundled x64/linux/wkhtmltopdf
  *
+ * Each candidate path (env var included) must pass a probe: it is run once with --version and
+ * must exit 0 (WkhtmltoPdfStatic::probeBinary(), cached per process). A binary that is executable
+ * but cannot start, e.g. because a shared library is missing, falls through to the next candidate.
+ *
  * Priority for WKHTMLTOPDF_DOCKER_IMAGE:
  * 1. Already defined constant
  * 2. WKHTMLTOPDF_DOCKER_IMAGE environment variable
@@ -25,9 +29,17 @@
 if (!defined('WKHTMLTOPDF_PATH')) {
     $wkPath = null;
 
+    # Probe that the candidate can actually start, not just that it has the exec bit (issue #6).
+    # Falls back to is_executable() only if this file is included without the package autoloader.
+    $wkUsable = static function (string $candidate): bool {
+        return class_exists(\Restruct\WkhtmltoPdf\WkhtmltoPdfStatic::class)
+            ? \Restruct\WkhtmltoPdf\WkhtmltoPdfStatic::probeBinary($candidate)
+            : is_executable($candidate);
+    };
+
     # Check environment variable first
     $envPath = getenv('WKHTMLTOPDF_PATH');
-    if ($envPath !== false && $envPath !== '' && is_executable($envPath)) {
+    if ($envPath !== false && $envPath !== '' && $wkUsable($envPath)) {
         $wkPath = $envPath;
     }
 
@@ -36,7 +48,7 @@ if (!defined('WKHTMLTOPDF_PATH')) {
             case 'Darwin':
                 # macOS: use bundled binary (Intel, runs on ARM via Rosetta 2)
                 $candidate = __DIR__ . '/x64/mac/wkhtmltopdf';
-                if (is_executable($candidate)) {
+                if ($wkUsable($candidate)) {
                     $wkPath = $candidate;
                 }
                 break;
@@ -45,10 +57,10 @@ if (!defined('WKHTMLTOPDF_PATH')) {
                 # Linux: prefer system-installed, fall back to bundled
                 $candidates = [
                     '/usr/local/bin/wkhtmltopdf', # System install (Debian/Ubuntu package)
-                    __DIR__ . '/x64/linux/wkhtmltopdf', # Bundled Ubuntu 20.04+ binary
+                    __DIR__ . '/x64/linux/wkhtmltopdf', # Bundled Ubuntu 22.04+ binary (jammy build, OpenSSL 3; up to 1.0.3 it was a 20.04+ build needing OpenSSL 1.1)
                 ];
                 foreach ($candidates as $candidate) {
-                    if (is_executable($candidate)) {
+                    if ($wkUsable($candidate)) {
                         $wkPath = $candidate;
                         break;
                     }
