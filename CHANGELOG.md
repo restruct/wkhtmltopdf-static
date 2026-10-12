@@ -2,6 +2,12 @@
 
 ## Unreleased (1.2.0)
 
+### Fixed
+
+- Docker strategy on macOS: the temp dir is mounted under both its spellings (`/var/folders/...`
+  and the resolved `/private/var/folders/...` that `tempnam()` returns). With only the first,
+  wkhtmltopdf did not find its input in the container and failed with "Host private not found".
+
 ### Security
 
 - Docker strategy: each container now runs as the PHP process's own user (`--user uid:gid`, from
@@ -23,7 +29,18 @@
 ### Added
 
 - `WkhtmltoPdf::allowPath($path)`: repeatable `--allow <path>`, the narrow alternative to
-  `enableLocalFileAccess()`.
+  `enableLocalFileAccess()`. Under the Docker strategy each allowed folder is also bind-mounted
+  read-only into the container at the same path, so `file://` URLs into it resolve as on the host;
+  before, the container only had the temp dir. The path is checked first and refused with an
+  `InvalidArgumentException` when it is not an existing absolute directory, or is `/`, a top-level
+  directory, a whole home directory or in a system tree such as `/etc` (path and realpath both).
+  `WkhtmltoPdfStatic::dockerAllowMounts()` and `dockerMountPath()`; `buildDockerCommand()` takes
+  the read-only mounts as a new last argument.
+- `docs/troubleshooting.md`: measured behaviour of fonts (generic families resolve to the default
+  sans font on Linux, WOFF2 is never applied, webfonts render nondeterministically on the macOS
+  binary and `--javascript-delay` does not change that), local file access per mode and under
+  Docker, page size, binaries that do not start, timeouts and leftover containers, and how to
+  verify a restored image backup. Linked from the README.
 - `WKHTMLTOPDF_DOCKER_NETWORK` (constant or env): passed as `docker run --network`, e.g. `none`.
   Empty (default) keeps Docker's default network.
 - `WkhtmltoPdfStatic::buildDockerCommand()`, `applyLocalFileAccessPolicy()`,

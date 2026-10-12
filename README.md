@@ -73,7 +73,7 @@ each call.
 `WkhtmltoPdfStatic::run()` picks a strategy per call:
 
 1. **`binary`** — if a wkhtmltopdf binary is resolved, it runs as a plain OS process. Fastest; Docker not involved at all.
-2. **`docker`**: otherwise, if a Docker image is configured **and** the Docker daemon responds, each call runs a throwaway container: `docker run --rm --init --name wkhtmltopdf-<random> --user <uid>:<gid> -v /tmp:/tmp <image> <args>`. The system temp dir is volume-mounted so input HTML and output PDF are visible to both host and container. ~100 to 300 ms startup overhead per call, no persistent state. See [Docker hardening](#docker-hardening) for what the extra flags do (from 1.2.0).
+2. **`docker`**: otherwise, if a Docker image is configured **and** the Docker daemon responds, each call runs a throwaway container: `docker run --rm --init --name wkhtmltopdf-<random> --user <uid>:<gid> -v /tmp:/tmp <image> <args>`. The system temp dir is volume-mounted so input HTML and output PDF are visible to both host and container, and from 1.2.0 each `allowPath()` folder is mounted read-only at the same path. Nothing else of the host is visible, so an output path outside the temp dir fails under Docker (see [Troubleshooting](docs/troubleshooting.md#under-docker)). ~100 to 300 ms startup overhead per call, no persistent state. See [Docker hardening](#docker-hardening) for what the extra flags do (from 1.2.0).
 3. Neither available → `RuntimeException`.
 
 ```php
@@ -160,6 +160,13 @@ access by default. The default stays `permissive` in 1.x so existing renders tha
 WKHTMLTOPDF_LOCAL_FILE_ACCESS=allowlist
 ```
 
+Under the Docker strategy each `allowPath()` folder is bind-mounted read-only into the container at
+the same path (from 1.2.0), so `file://` URLs into it work as with the binary. The folder must then
+be an existing directory, and `/`, top-level directories, whole home directories and system trees
+such as `/etc` are refused; `enableLocalFileAccess()` reaches only the temp dir there. HTML that
+inlines its assets (`data:` URIs) needs none of this and can run with `deny`. Details, and what each
+mode did in our renders: [docs/troubleshooting.md](docs/troubleshooting.md#local-file-access-and-file-urls).
+
 ### Docker hardening
 
 From 1.2.0 the Docker strategy runs each container with:
@@ -173,6 +180,9 @@ From 1.2.0 the Docker strategy runs each container with:
   `docker rm -f <name>`. Before 1.2.0 a timeout only stopped the `docker` CLI and the container
   kept running (#3). A PHP process killed with SIGKILL runs no cleanup at all; that container
   lives until wkhtmltopdf exits.
+- `-v <dir>:<dir>:ro` for each `allowPath()` folder, checked first (see
+  [Local file access](#local-file-access)). Before 1.2.0 only the temp dir was mounted, so those
+  folders were allowed but missing in the container.
 - `--network <name>` only when `WKHTMLTOPDF_DOCKER_NETWORK` is set. The default network stays, so
   HTML can load http(s) assets. `WKHTMLTOPDF_DOCKER_NETWORK=none` cuts the container off from the
   network, for HTML that loads nothing remote.
@@ -376,7 +386,8 @@ are fixed in mm wherever text flows, so the page count does not depend on the fo
 do, which is how a host font change is caught. An `@font-face` webfont was tried and dropped: the
 bundled macOS binary applied it in only 30 of 40 renders of the same files (loaded by file URL,
 as a `data:` URI, and with `--javascript-delay 1000`) and used a system font in the others, which
-no fixed baseline can absorb. Keep that in mind for real templates too.
+no fixed baseline can absorb. Keep that in mind for real templates too. Later measurements
+(webfont formats, `javascript-delay`, Docker): [docs/troubleshooting.md](docs/troubleshooting.md#fonts).
 
 ### Baselines per platform
 
@@ -386,7 +397,12 @@ are per platform: `tests/Visual/baselines/darwin/` (bundled macOS binary) and
 The platform is where the rendering happens, so the Docker strategy compares against `linux` even
 on a Mac. Between the two, every mm-placed element (frames, rulers, box, image, table) lands on the
 same pixel; only the text differs. On the CI runner the generic `serif` and `monospace` families
-render in a sans-serif font, so name a real font family when a template needs one. Docker on Apple Silicon runs the arm64 image, which is a different build again.
+render in a sans-serif font, so name a real font family when a template needs one: on Linux
+wkhtmltopdf resolves only real family names, not generic families or aliases (see
+[docs/troubleshooting.md](docs/troubleshooting.md#fonts)). Docker on Apple Silicon runs the arm64
+image, a different build; for this fixture its pages are pixel-identical to the amd64 image and to
+the bundled binary on a stock Ubuntu 24.04, and all three differ from the `linux` baselines only in
+the text samples, because the GitHub runner has more fonts installed (measured 2026-10-12).
 
 ### Running it
 
@@ -435,6 +451,13 @@ Measured with `compare bundled bundled --b-opt=...` against the `fullbleed` case
 - QtWebKit floors border widths to whole CSS px: a 0.2 mm border (0.76 px) is not drawn at all.
 - `page-break-after: avoid` on the line after a heading is not honoured; `page-break-inside:
   avoid` on a block is.
+
+## Troubleshooting
+
+[docs/troubleshooting.md](docs/troubleshooting.md) collects what we measured: fonts (generic
+families on Linux, WOFF2, webfonts on the macOS binary), local file access per mode and under
+Docker, page size and smart shrinking, binaries that do not start (exit 127), timeouts and leftover
+containers, and how to verify a restored image backup.
 
 ## License
 

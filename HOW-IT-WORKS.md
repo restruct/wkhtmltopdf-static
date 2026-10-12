@@ -174,6 +174,11 @@ After a local load, set `WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0
 without the digest). The classic store records no registry digest for a loaded image, so a
 reference with `@sha256:` makes Docker try to pull it, which fails when the registry is gone.
 
+To check that a loaded image is the pinned one, compare its image ID with the config digest the
+pinned index leads to (a loaded image has no repo digest to compare). The chain, and the values it
+gave when the backup was loaded on the classic store on 2026-10-12, are in
+[docs/troubleshooting.md](docs/troubleshooting.md#docker-image-verifying-a-restored-backup).
+
 Alternative with [skopeo](https://github.com/containers/skopeo), which needs no daemon and can
 push the image into any registry you run, digest unchanged:
 
