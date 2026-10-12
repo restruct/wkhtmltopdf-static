@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="fixture.css">
+<script>
+// wkhtmltopdf passes page, topage, etc. in the query string of the header/footer document
+function subst() {
+    var vars = {};
+    var parts = document.location.search.substring(1).split('&');
+    for (var i in parts) {
+        var kv = parts[i].split('=', 2);
+        vars[kv[0]] = decodeURIComponent(kv[1]);
+    }
+    var names = ['page', 'topage'];
+    for (var n in names) {
+        var els = document.getElementsByClassName(names[n]);
+        for (var j = 0; j < els.length; ++j) { els[j].textContent = vars[names[n]]; }
+    }
+}
+</script>
+</head>
+<body onload="subst()" style="margin: 0;">
+<!-- A table, not floats: floated spans wrap early in header/footer documents -->
+<table style="margin: 0 15mm; width: 180mm; border-collapse: collapse; border-top: 0.5mm solid #000; font-family: 'DejaVu Sans Mono', monospace; font-size: 9pt;">
+    <tr style="height: 8mm;">
+        <td style="text-align: left;">footer: 8 mm, border on the top</td>
+        <td style="text-align: right;">page <span class="page"></span> / <span class="topage"></span></td>
+    </tr>
+</table>
+</body>
+</html>
