@@ -1,0 +1,162 @@
+/*
+ * Visual-check fixture styles. Everything that should land at a known place is sized in mm, so a
+ * scale or offset change in the renderer (version, smart shrinking, zoom, dpi) moves it by a
+ * measurable amount against the committed baseline PNGs.
+ *
+ * Fonts: host fonts only, no @font-face. A webfont was tried first (DejaVu Sans Mono from a file
+ * next to this CSS) and dropped: the bundled macOS binary applied it in only 30 of 40 renders
+ * of the same input, falling back to a system font in the others, which no fixed baseline can
+ * absorb. A data: URI and --javascript-delay did not help.
+ * - 'DejaVu Sans Mono', monospace: the "fixed" text. DejaVu is installed by the README's apt line
+ *   (fonts-dejavu-core), so on Linux it is the same font everywhere; macOS falls back to its
+ *   monospace font. Any monospace font is about 0.6 em per glyph, so the line wraps below hold on
+ *   both (see .mono-wrap).
+ * - Generic and system stacks (sans-serif; Arial, Helvetica, sans-serif; serif; monospace), as
+ *   most real templates use: these come from the host via fontconfig, so text in them moves when
+ *   the host's fonts change, which is one of the things this check is meant to catch.
+ * Line heights are fixed in mm wherever text flows across pages, so the page count does not
+ * depend on which font a host picks; only the pixels do.
+ *
+ * Plain CSS, so comments are block comments only.
+ */
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    color: #000;
+}
+
+body {
+    font-family: 'DejaVu Sans Mono', monospace;
+    font-size: 10pt;
+    line-height: 5mm;
+}
+
+/* One exact A4 page. Without --disable-smart-shrinking, 0.12.6 scales this box and it no longer
+   lines up with the paper; 0.12.4-era templates shrank it to 209 x 295.5 mm to compensate. */
+.page {
+    position: relative;
+    width: 210mm;
+    height: 297mm;
+    overflow: hidden;
+    page-break-after: always;
+}
+.page.last {
+    page-break-after: auto;
+}
+
+/* Frame exactly on the paper edge, and a second one 10 mm in. Any shift or scale shows as the
+   outer frame being cut off or leaving a white strip. */
+.frame {
+    position: absolute;
+    box-sizing: border-box;
+    border: 0.5mm solid #000;
+}
+.frame.edge  { left: 0;    top: 0;    width: 210mm; height: 297mm; }
+.frame.inset { left: 10mm; top: 10mm; width: 190mm; height: 277mm; border-style: dashed; border-color: #c00; }
+
+/* Rulers: one tick per mm, a long tick every 10 mm. Each tick is absolutely positioned at its own
+   mm offset rather than floated: QtWebKit lays out in whole px, so 1 mm (3.78 px) floats would
+   each round to 4 px and the error would add up along the ruler, making the ruler itself wrong.
+   Tick borders are 0.3 mm, not thinner: QtWebKit floors border widths to whole CSS px (96 dpi),
+   so 0.2 mm (0.76 px) renders as no border at all. */
+.ruler {
+    position: absolute;
+    overflow: hidden;
+}
+.ruler.h { height: 5mm; }
+.ruler.v { width: 5mm; }
+.ruler span {
+    position: absolute;
+    display: block;
+    box-sizing: border-box;
+}
+.ruler.h span { top: 0; width: 1mm; height: 2mm; border-left: 0.3mm solid #000; }
+.ruler.h span.c { height: 5mm; }
+.ruler.v span { left: 0; height: 1mm; width: 2mm; border-top: 0.3mm solid #000; }
+.ruler.v span.c { width: 5mm; }
+
+.box-50 {
+    position: absolute;
+    box-sizing: border-box;
+    width: 50mm;
+    height: 50mm;
+    border: 0.3mm solid #00c;
+    background: #eef;
+    padding: 2mm;
+}
+
+.img-50x25 {
+    position: absolute;
+    width: 50mm;
+    height: 25mm;
+}
+
+/* 60 monospace glyphs at 10pt are about 60 x 0.6 x 10pt = 360pt = 127 mm wide, so this box
+   holds exactly five "0123456789 " groups per line: the sixth would end at column 65. */
+.mono-wrap {
+    position: absolute;
+    width: 128mm;
+    font-family: 'DejaVu Sans Mono', monospace;
+    font-size: 10pt;
+}
+
+.host-fonts {
+    position: absolute;
+    width: 120mm;
+}
+.host-fonts p { margin: 0 0 1mm 0; }
+.f-sans  { font-family: sans-serif; }
+.f-arial { font-family: Arial, Helvetica, sans-serif; }
+.f-serif { font-family: serif; }
+.f-mono  { font-family: monospace; }
+.s-36px  { font-size: 36px; line-height: 1.1; font-weight: bold; }
+.s-28px  { font-size: 28px; line-height: 1.1; }
+.s-16pt  { font-size: 16pt; line-height: 1.2; }
+.s-10pt  { font-size: 10pt; line-height: 1.2; }
+.nowrap  { white-space: nowrap; display: inline-block; }
+
+table.grid {
+    position: absolute;
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 120mm;
+}
+table.grid td, table.grid th {
+    border: 0.3mm solid #000;
+    height: 8mm;
+    padding: 0 1mm;
+    font-family: 'DejaVu Sans Mono', monospace;
+    font-size: 9pt;
+    text-align: left;
+    overflow: hidden;
+}
+table.grid th { background: #ddd; }
+
+/* Flowing content (flow.html, header-footer.html): page breaks decided by wkhtmltopdf. */
+.flow h2 {
+    font-family: 'DejaVu Sans Mono', monospace;
+    font-size: 14pt;
+    line-height: 8mm;
+    margin: 6mm 0 2mm 0;
+    page-break-after: avoid;
+}
+.flow h2 + .line { page-break-before: avoid; page-break-after: avoid; }
+.flow .keep { page-break-inside: avoid; border-left: 1mm solid #888; padding-left: 2mm; margin-bottom: 3mm; }
+.flow .line { height: 5mm; overflow: hidden; }
+.flow .break-before { page-break-before: always; }
+.flow { margin: 0 15mm; }
+
+/* An element pulled up into the top margin by exactly that margin, a pattern used to cancel a
+   --margin-top for a full-page background. wkhtmltopdf clips it at the margin, which is part of
+   what the baseline records: only the lower 10 mm of this 26 mm band should be visible.
+   It must end above the first heading, positioned elements paint over in-flow text. */
+.into-margin {
+    position: absolute;
+    left: 0;
+    top: -16mm;
+    width: 210mm;
+    height: 26mm;
+    background: #fd8;
+}

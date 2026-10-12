@@ -227,7 +227,7 @@ src/
   WkhtmltoPdfResult.php  output/errorOutput/exitCode value object
 x64/mac/, x64/linux/     bundled 0.12.6.1 patched-Qt binaries
 build/                   Dockerfile + multi-arch build script
-tests/                   PHPUnit suite (not in dist installs)
+tests/                   PHPUnit suite and the visual check (not in dist installs)
 ```
 
 ## Running the tests
@@ -239,6 +239,105 @@ vendor/bin/phpunit
 
 The render tests need a working wkhtmltopdf (the bundled binary or the Docker image) and are
 skipped without one.
+
+## Visual check
+
+A change of wkhtmltopdf version, of strategy (bundled binary, native install, Docker) or of the
+fonts on a host can change the size and placement of everything on a page without any error. The
+visual check renders a fixed fixture and compares the result, so such a change shows up as a red
+test with a diff image instead of in a client's documents. It lives in `tests/Visual/` (dev only,
+not in dist installs) and needs `restruct/xpdf-static` (require-dev, for `pdfinfo` and
+`pdftopng`) and ext-gd.
+
+What it compares, per render:
+
+- **Geometry**: page count and the size of every page in points (`pdfinfo`), exactly.
+- **Pixels**: every page rasterised at 100 dpi (`pdftopng`) and compared with GD. A pixel differs
+  when one RGB channel differs by more than 64; a page fails when more than 0.1 % of its pixels
+  differ (about 970 px on A4, a few glyphs). On failure it writes the PDF, the page PNGs and a diff
+  image (differing pixels red over a washed-out expected page) to `tests/Visual/out/` (or
+  `$WKHTMLTOPDF_VISUAL_OUT`).
+
+### The fixture
+
+`tests/Visual/fixture/` holds plain HTML and CSS with everything sized in mm: a frame exactly on
+the paper edge and one 10 mm in, rulers with a tick per mm, a 50 x 50 mm box, a generated PNG
+(`make-image.php`, no SVG) shown at 50 x 25 mm, a monospace block with known line wraps (five
+10-digit groups per line), host-font samples in several sizes, a table with mm column widths,
+forced and avoided page breaks, and an HTML header and footer. The cases use the option sets that
+real document pipelines need:
+
+| Case | Options | Pages |
+|---|---|---|
+| `fullbleed` | margins `0px`, `--enable-local-file-access`, `--disable-smart-shrinking`; two exact 210 x 297 mm page boxes, the second with its text pushed 210 mm down by padding | 2 x A4 |
+| `lowquality` | `fullbleed` plus `--lowquality` (knp-snappy passes it by default, this wrapper does not) | 2 x A4 |
+| `flow` | margins 16 mm top, 20 mm bottom, 0 sides; flowing content with `page-break-before/after/inside`, an element pulled 16 mm up into the margin | 3 x A4 |
+| `header-footer` | margins 25 / 20 mm, `--header-html`, `--footer-html` (page X / Y), spacing 5 mm | 2 x A4 |
+
+Fonts are host fonts only: `'DejaVu Sans Mono', monospace` for the fixed text (DejaVu comes with
+the apt line above; macOS falls back to its own monospace font), and `sans-serif`,
+`Arial, Helvetica, sans-serif` and `serif` for the samples, as most templates use. Line heights
+are fixed in mm wherever text flows, so the page count does not depend on the fonts; the pixels
+do, which is how a host font change is caught. An `@font-face` webfont was tried and dropped: the
+bundled macOS binary applied it in only 30 of 40 renders of the same files (loaded by file URL,
+as a `data:` URI, and with `--javascript-delay 1000`) and used a system font in the others, which
+no fixed baseline can absorb. Keep that in mind for real templates too.
+
+### Baselines per platform
+
+Fonts and the macOS and Linux builds of wkhtmltopdf render text differently, so the baseline PNGs
+are per platform: `tests/Visual/baselines/darwin/` (bundled macOS binary) and
+`tests/Visual/baselines/linux/` (bundled Linux binary on Ubuntu 24.04 with the apt line above).
+The platform is where the rendering happens, so the Docker strategy compares against `linux` even
+on a Mac. Docker on Apple Silicon runs the arm64 image, which is a different build again.
+
+### Running it
+
+```bash
+vendor/bin/phpunit --group visual                                   # strategy "auto"
+WKHTMLTOPDF_VISUAL_STRATEGY=docker vendor/bin/phpunit --group visual
+```
+
+The tests are skipped when ext-gd, xpdf or the renderer is missing (CI treats a skip as a
+failure). Strategies: `auto` (whatever this package resolves, through the wrapper), `bundled`,
+`native` (`/usr/local/bin/wkhtmltopdf`), `docker` or `docker:<image>`, or a path to any
+wkhtmltopdf binary. A platform without baselines fails rather than passes, and proposes its render
+as baselines under `out/proposed-baselines/`.
+
+The group also holds must-fail controls: the `fullbleed` case rendered with smart shrinking back
+on, `--zoom 1.02`, a 4 px left margin and `--page-size Letter` must each be reported as different.
+If one of those ever passes, the check has gone blind to that kind of change.
+
+The same check without PHPUnit, plus a direct comparison of two strategies or binaries (no
+baselines involved), for use before switching a host:
+
+```bash
+php tests/Visual/visual-check.php check --strategy=bundled
+php tests/Visual/visual-check.php compare bundled docker
+php tests/Visual/visual-check.php compare bundled /usr/local/bin/wkhtmltopdf --case=fullbleed
+php tests/Visual/visual-check.php compare bundled bundled --b-opt=zoom=1.02    # shows red
+php tests/Visual/visual-check.php baseline --strategy=bundled                 # rewrite baselines
+```
+
+Exit code 0 is a pass, 1 differences, 2 a usage error or missing prerequisite. Look at new
+baseline PNGs before committing them: a baseline is a claim that this output is right.
+
+### What it showed on the bundled macOS binary (0.12.6)
+
+Measured with `compare bundled bundled --b-opt=...` against the `fullbleed` case:
+
+- Smart shrinking on (the default) scales the page content to roughly 80 %: 9.3 % of page 1's
+  pixels differ, while page count and page size stay the same. Only the pixel comparison sees it.
+- `--zoom 1.02` and even `--zoom 1.005` push the 297 mm page boxes over the page edge: 4 pages
+  instead of 2.
+- `--dpi 300` changes the layout (7.2 % of page 1 differs). It is not a must-fail control because
+  its effect on Linux is not measured yet.
+- `--lowquality` gives pixel-identical pages for this fixture at 100 dpi.
+- wkhtmltopdf refuses mixed margin units (`--margin-top 0px --margin-left 1mm` exits 1 with
+  "Currently all margin units must be the same!").
+- QtWebKit floors border widths to whole CSS px: a 0.2 mm border (0.76 px) is not drawn at all.
+- `page-break-after: avoid` on the line after a heading is not honoured; `page-break-inside:
+  avoid` on a block is.
 
 ## License
 

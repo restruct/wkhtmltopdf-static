@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>wkhtmltopdf visual check</title>
+<link rel="stylesheet" href="fixture.css">
+</head>
+<!-- Flowing content with page margins (top 16 mm, bottom 20 mm, sides 0), the "table of
+     contents" pattern: wkhtmltopdf decides the page breaks, steered by page-break-* CSS. -->
+<body>
+<div class="into-margin"></div>
+<div class="ruler h" style="left: 15mm; top: 2mm; width: 181mm;"><span class="c" style="left: 0mm"></span><span style="left: 1mm"></span><span style="left: 2mm"></span><span style="left: 3mm"></span><span style="left: 4mm"></span><span style="left: 5mm"></span><span style="left: 6mm"></span><span style="left: 7mm"></span><span style="left: 8mm"></span><span style="left: 9mm"></span><span class="c" style="left: 10mm"></span><span style="left: 11mm"></span><span style="left: 12mm"></span><span style="left: 13mm"></span><span style="left: 14mm"></span><span style="left: 15mm"></span><span style="left: 16mm"></span><span style="left: 17mm"></span><span style="left: 18mm"></span><span style="left: 19mm"></span><span class="c" style="left: 20mm"></span><span style="left: 21mm"></span><span style="left: 22mm"></span><span style="left: 23mm"></span><span style="left: 24mm"></span><span style="left: 25mm"></span><span style="left: 26mm"></span><span style="left: 27mm"></span><span style="left: 28mm"></span><span style="left: 29mm"></span><span class="c" style="left: 30mm"></span><span style="left: 31mm"></span><span style="left: 32mm"></span><span style="left: 33mm"></span><span style="left: 34mm"></span><span style="left: 35mm"></span><span style="left: 36mm"></span><span style="left: 37mm"></span><span style="left: 38mm"></span><span style="left: 39mm"></span><span class="c" style="left: 40mm"></span><span style="left: 41mm"></span><span style="left: 42mm"></span><span style="left: 43mm"></span><span style="left: 44mm"></span><span style="left: 45mm"></span><span style="left: 46mm"></span><span style="left: 47mm"></span><span style="left: 48mm"></span><span style="left: 49mm"></span><span class="c" style="left: 50mm"></span><span style="left: 51mm"></span><span style="left: 52mm"></span><span style="left: 53mm"></span><span style="left: 54mm"></span><span style="left: 55mm"></span><span style="left: 56mm"></span><span style="left: 57mm"></span><span style="left: 58mm"></span><span style="left: 59mm"></span><span class="c" style="left: 60mm"></span><span style="left: 61mm"></span><span style="left: 62mm"></span><span style="left: 63mm"></span><span style="left: 64mm"></span><span style="left: 65mm"></span><span style="left: 66mm"></span><span style="left: 67mm"></span><span style="left: 68mm"></span><span style="left: 69mm"></span><span class="c" style="left: 70mm"></span><span style="left: 71mm"></span><span style="left: 72mm"></span><span style="left: 73mm"></span><span style="left: 74mm"></span><span style="left: 75mm"></span><span style="left: 76mm"></span><span style="left: 77mm"></span><span style="left: 78mm"></span><span style="left: 79mm"></span><span class="c" style="left: 80mm"></span><span style="left: 81mm"></span><span style="left: 82mm"></span><span style="left: 83mm"></span><span style="left: 84mm"></span><span style="left: 85mm"></span><span style="left: 86mm"></span><span style="left: 87mm"></span><span style="left: 88mm"></span><span style="left: 89mm"></span><span class="c" style="left: 90mm"></span><span style="left: 91mm"></span><span style="left: 92mm"></span><span style="left: 93mm"></span><span style="left: 94mm"></span><span style="left: 95mm"></span><span style="left: 96mm"></span><span style="left: 97mm"></span><span style="left: 98mm"></span><span style="left: 99mm"></span><span class="c" style="left: 100mm"></span><span style="left: 101mm"></span><span style="left: 102mm"></span><span style="left: 103mm"></span><span style="left: 104mm"></span><span style="left: 105mm"></span><span style="left: 106mm"></span><span style="left: 107mm"></span><span style="left: 108mm"></span><span style="left: 109mm"></span><span class="c" style="left: 110mm"></span><span style="left: 111mm"></span><span style="left: 112mm"></span><span style="left: 113mm"></span><span style="left: 114mm"></span><span style="left: 115mm"></span><span style="left: 116mm"></span><span style="left: 117mm"></span><span style="left: 118mm"></span><span style="left: 119mm"></span><span class="c" style="left: 120mm"></span><span style="left: 121mm"></span><span style="left: 122mm"></span><span style="left: 123mm"></span><span style="left: 124mm"></span><span style="left: 125mm"></span><span style="left: 126mm"></span><span style="left: 127mm"></span><span style="left: 128mm"></span><span style="left: 129mm"></span><span class="c" style="left: 130mm"></span><span style="left: 131mm"></span><span style="left: 132mm"></span><span style="left: 133mm"></span><span style="left: 134mm"></span><span style="left: 135mm"></span><span style="left: 136mm"></span><span style="left: 137mm"></span><span style="left: 138mm"></span><span style="left: 139mm"></span><span class="c" style="left: 140mm"></span><span style="left: 141mm"></span><span style="left: 142mm"></span><span style="left: 143mm"></span><span style="left: 144mm"></span><span style="left: 145mm"></span><span style="left: 146mm"></span><span style="left: 147mm"></span><span style="left: 148mm"></span><span style="left: 149mm"></span><span class="c" style="left: 150mm"></span><span style="left: 151mm"></span><span style="left: 152mm"></span><span style="left: 153mm"></span><span style="left: 154mm"></span><span style="left: 155mm"></span><span style="left: 156mm"></span><span style="left: 157mm"></span><span style="left: 158mm"></span><span style="left: 159mm"></span><span class="c" style="left: 160mm"></span><span style="left: 161mm"></span><span style="left: 162mm"></span><span style="left: 163mm"></span><span style="left: 164mm"></span><span style="left: 165mm"></span><span style="left: 166mm"></span><span style="left: 167mm"></span><span style="left: 168mm"></span><span style="left: 169mm"></span><span class="c" style="left: 170mm"></span><span style="left: 171mm"></span><span style="left: 172mm"></span><span style="left: 173mm"></span><span style="left: 174mm"></span><span style="left: 175mm"></span><span style="left: 176mm"></span><span style="left: 177mm"></span><span style="left: 178mm"></span><span style="left: 179mm"></span><span class="c" style="left: 180mm"></span></div>
+<!-- Padding, not a heading margin: a top margin would collapse through the container -->
+<div class="flow" style="padding-top: 8mm;">
+<h2>Flowing content</h2>
+<div class="line">Headings avoid a break after them; each block avoids a break inside.</div>
+<h2>Section 1</h2>
+<div class="line">Line directly after heading 1, kept with it</div>
+<div class="keep">
+<div class="line">Section 1 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 1 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 1 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 1 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 2</h2>
+<div class="line">Line directly after heading 2, kept with it</div>
+<div class="keep">
+<div class="line">Section 2 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 2 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 2 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 2 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 3</h2>
+<div class="line">Line directly after heading 3, kept with it</div>
+<div class="keep">
+<div class="line">Section 3 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 3 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 3 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 3 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 4</h2>
+<div class="line">Line directly after heading 4, kept with it</div>
+<div class="keep">
+<div class="line">Section 4 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 4 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 4 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 4 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 5</h2>
+<div class="line">Line directly after heading 5, kept with it</div>
+<div class="keep">
+<div class="line">Section 5 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 5 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 5 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 5 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 6</h2>
+<div class="line">Line directly after heading 6, kept with it</div>
+<div class="keep">
+<div class="line">Section 6 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 6 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 6 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 6 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 7</h2>
+<div class="line">Line directly after heading 7, kept with it</div>
+<div class="keep">
+<div class="line">Section 7 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 7 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 7 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 7 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 8</h2>
+<div class="line">Line directly after heading 8, kept with it</div>
+<div class="keep">
+<div class="line">Section 8 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 8 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 8 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 8 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 9</h2>
+<div class="line">Line directly after heading 9, kept with it</div>
+<div class="keep">
+<div class="line">Section 9 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 9 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 9 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 9 keep-together line 4 of 4 ....................</div>
+</div>
+<h2 class="break-before">Section 10 (forced page break before)</h2>
+<div class="line">Line directly after heading 10, kept with it</div>
+<div class="keep">
+<div class="line">Section 10 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 10 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 10 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 10 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 11</h2>
+<div class="line">Line directly after heading 11, kept with it</div>
+<div class="keep">
+<div class="line">Section 11 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 11 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 11 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 11 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 12</h2>
+<div class="line">Line directly after heading 12, kept with it</div>
+<div class="keep">
+<div class="line">Section 12 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 12 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 12 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 12 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 13</h2>
+<div class="line">Line directly after heading 13, kept with it</div>
+<div class="keep">
+<div class="line">Section 13 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 13 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 13 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 13 keep-together line 4 of 4 ....................</div>
+</div>
+<h2>Section 14</h2>
+<div class="line">Line directly after heading 14, kept with it</div>
+<div class="keep">
+<div class="line">Section 14 keep-together line 1 of 4 ....................</div>
+<div class="line">Section 14 keep-together line 2 of 4 ....................</div>
+<div class="line">Section 14 keep-together line 3 of 4 ....................</div>
+<div class="line">Section 14 keep-together line 4 of 4 ....................</div>
+</div>
+
+</div>
+</body>
+</html>
