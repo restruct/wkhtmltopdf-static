@@ -9,7 +9,9 @@ on:
 jobs:
   test:
     name: PHP ${{ matrix.php }}
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest: the servers this package targets run Ubuntu 24.04, so the
+    # bundled binary is tested on that release. Move it up when the servers move.
+    runs-on: ubuntu-24.04
 
     strategy:
       fail-fast: false
@@ -27,41 +29,45 @@ jobs:
           tools: composer:v2
           coverage: none
 
-      - name: Install wkhtmltopdf (upstream jammy deb, as the README's native install)
-        # Why not the BUNDLED x64/linux/wkhtmltopdf: it links OpenSSL 1.1 (libssl.so.1.1,
-        # libcrypto.so.1.1; read from its ELF DT_NEEDED entries on 2026-10-12), which Ubuntu
-        # 22.04 and later do not ship. On this runner it is executable but cannot start, and
-        # since bootstrap.php only checks is_executable() the wrapper would still choose it and
-        # every render test would fail. bootstrap.php prefers /usr/local/bin/wkhtmltopdf on Linux,
-        # which is where this deb installs, so the suite runs the same upstream 0.12.6.1-3
-        # patched-Qt build the Docker image is made from.
+      - name: Install the bundled Linux binary's runtime libraries (README apt line)
+        # Since 1.1.0 the suite tests the BUNDLED x64/linux/wkhtmltopdf, not an upstream .deb
+        # install (issue #6). Up to 1.0.3 the bundled binary linked OpenSSL 1.1, which Ubuntu 22.04
+        # and later do not ship, so CI had to install the jammy deb instead and the bundled binary
+        # went untested. It is now the binary from that same jammy deb (OpenSSL 3), so it can run
+        # here, and this step installs only what the README tells server admins to install. That
+        # keeps the README's library list honest: if it misses a library, the probe test fails.
+        # Most of these are already on the runner image; apt skips what is installed.
         # Why not the Docker fallback: the image runs as root, so the output PDF it writes into
         # the host's /tmp is root-owned, and /tmp is sticky, so the runner user most likely
         # cannot delete it and the temp-file tests would fail on that. Inferred from the code
         # and the Dockerfile (no USER), not run.
-        # Dependency list: README, "Native install on Ubuntu servers" (the xfonts packages are
-        # the ones a bare dpkg -i usually misses).
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xfonts-75dpi xfonts-base libfontconfig1 libfreetype6 libjpeg-turbo8 libx11-6 libxext6 libxrender1
-          wget -q https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.jammy_amd64.deb
-          sudo apt-get install -y ./wkhtmltox_0.12.6.1-3.jammy_amd64.deb
-          /usr/local/bin/wkhtmltopdf -V
+          sudo apt-get install -y --no-install-recommends libfontconfig1 libfreetype6 libjpeg-turbo8 libpng16-16t64 libssl3t64 libx11-6 libxrender1 zlib1g fonts-dejavu-core
 
-      - name: Show whether the bundled Linux binary can start here (informational)
-        # Never fails the job: it only records, in the log, which shared libraries the bundled
-        # binary is missing on the current runner image.
+      - name: Check the bundled binary resolves all its shared libraries
+        # Fails the job (grep finds a "not found" line) instead of only logging it, as before.
         run: |
-          ldd x64/linux/wkhtmltopdf | grep 'not found' || echo 'bundled binary: all libraries found'
+          ldd x64/linux/wkhtmltopdf
+          if ldd x64/linux/wkhtmltopdf | grep 'not found'; then exit 1; fi
+          x64/linux/wkhtmltopdf --version
 
       - name: Install dependencies
         # No composer.lock is committed (it is a library), so this resolves fresh per PHP version.
         run: composer install --no-interaction --no-progress
 
+      - name: Check the wrapper resolves the bundled binary
+        # bootstrap.php prefers /usr/local/bin/wkhtmltopdf; this runner has none, so the render
+        # tests below must be running the bundled binary. Fails loudly if that ever changes.
+        run: |
+          resolved=$(php -r 'require "vendor/autoload.php"; echo Restruct\WkhtmltoPdf\WkhtmltoPdfStatic::getPath();')
+          echo "resolved: $resolved"
+          test "$resolved" = "$PWD/x64/linux/wkhtmltopdf"
+
       - name: Run tests
         # --fail-on-skipped: the render tests skip when no wkhtmltopdf can be resolved, which is
         # right on a developer machine without one but would let CI pass green with nothing
-        # rendered. Here one was installed above, so a skip is a failure.
+        # rendered. Here the bundled binary is checked above, so a skip is a failure.
         # --fail-on-empty-test-suite: a run that discovers no tests exits non-zero instead of 0.
         run: vendor/bin/phpunit --fail-on-skipped --fail-on-empty-test-suite
 

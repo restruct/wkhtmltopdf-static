@@ -105,16 +105,78 @@ WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6
 
 If both resolve, the native binary wins.
 
+A binary only counts as resolved if it can actually start (from 1.1.0). Each candidate path is run
+once with `--version` (10 s timeout) and must exit 0; the result is cached for the rest of the PHP
+process, so this costs one extra process start per path, not one per render. A binary that is
+executable but cannot start, for example because a shared library is missing, is skipped: the
+next candidate in the table above is tried, and if none starts the Docker strategy is used. Up to
+1.0.3 only the exec bit was checked, so such a binary was chosen anyway and every render failed.
+`WkhtmltoPdfStatic::probeBinary($path)` runs the same check by hand.
+
 ## Platform support
 
 | Platform | Native binary | Docker image |
 |---|---|---|
 | macOS x64 | ✅ bundled (`x64/mac`) | — |
 | macOS ARM (Apple Silicon) | ✅ bundled x64 binary via Rosetta 2 | ✅ native `linux/arm64` (in OrbStack/Docker Desktop) |
-| Linux x64 | ✅ bundled (`x64/linux`, Ubuntu 20.04+) or system deb | ✅ `linux/amd64` |
+| Linux x64 | ✅ bundled (`x64/linux`, Ubuntu 22.04+, see [below](#the-bundled-linux-binary)) or system deb | ✅ `linux/amd64` |
 | Linux ARM64 | ❌ upstream never shipped one | ✅ `linux/arm64` |
 
 The Docker image is the answer for every platform without a workable native binary — and the long-term insurance for when OS upgrades break the native ones.
+
+## The bundled Linux binary
+
+`x64/linux/wkhtmltopdf` is the upstream wkhtmltopdf 0.12.6.1 (patched Qt) binary, taken unchanged
+from the official Ubuntu 22.04 (jammy) amd64 package (from 1.1.0). It links OpenSSL 3, so it runs
+on Ubuntu 22.04 and 24.04. It does **not** run on Ubuntu 20.04 or older, which ship OpenSSL 1.1
+only. Up to 1.0.3 the bundled binary was an older build linked against OpenSSL 1.1, which in turn
+could not start on 22.04 and later (#6).
+
+| | |
+|---|---|
+| Source | https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.jammy_amd64.deb |
+| `.deb` sha256 | `4f723b2691ad8638a9df960e0421d346d7315083e3583a334f33362280ddba15` |
+| Binary sha256 | `750c92708349321a502b92e5e6c16b25499318ec24d1175cc8a81b6aefa321b2` (`usr/local/bin/wkhtmltopdf` in the `.deb`) |
+| Version | `wkhtmltopdf 0.12.6.1 (with patched qt)` |
+
+Upstream publishes no checksums for its release assets (neither on the release page nor on
+wkhtmltopdf.org), so the `.deb` sha256 above is the one we computed on download. It matches the
+value several unrelated public projects pin for the same file, and the binary matches the MD5 in the
+`.deb`'s own `md5sums` list. To check the bundled binary yourself:
+
+```bash
+wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.jammy_amd64.deb
+sha256sum wkhtmltox_0.12.6.1-3.jammy_amd64.deb
+dpkg-deb -x wkhtmltox_0.12.6.1-3.jammy_amd64.deb deb && sha256sum deb/usr/local/bin/wkhtmltopdf
+```
+
+### Runtime libraries (Ubuntu 24.04)
+
+The binary links these shared libraries (its ELF `DT_NEEDED` list): `libjpeg.so.8`,
+`libpng16.so.16`, `libXrender.so.1`, `libfontconfig.so.1`, `libfreetype.so.6`, `libX11.so.6`,
+`libssl.so.3`, `libcrypto.so.3`, `libz.so.1`, plus the C/C++ runtime (`libc`, `libm`, `libstdc++`,
+`libgcc_s`). Fontconfig also needs at least one font installed to render text.
+
+On the official Ubuntu 24.04 server cloud image (package manifest of 2026-09-26) all of these are
+already installed **except `libxrender1`**. A server provisioned with more packages (Laravel Forge,
+for example) usually has that one too. To be sure on any 24.04 server, run this; apt skips what is
+already installed:
+
+```bash
+sudo apt-get install -y --no-install-recommends libfontconfig1 libfreetype6 libjpeg-turbo8 libpng16-16t64 libssl3t64 libx11-6 libxrender1 zlib1g fonts-dejavu-core
+```
+
+On 22.04 two of the package names differ: use `libpng16-16` and `libssl3` instead of
+`libpng16-16t64` and `libssl3t64`. Then check that nothing is missing:
+
+```bash
+ldd vendor/restruct/wkhtmltopdf-static/x64/linux/wkhtmltopdf | grep 'not found'   # prints nothing
+vendor/restruct/wkhtmltopdf-static/x64/linux/wkhtmltopdf --version
+```
+
+The upstream `.deb` also depends on `xfonts-75dpi` and `xfonts-base` (X bitmap fonts). The binary
+starts and renders without them; install them only if your HTML relies on those fonts. CI runs the
+test suite against the bundled binary on Ubuntu 24.04 with exactly the apt line above.
 
 ## The Docker image
 

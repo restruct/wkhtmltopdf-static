@@ -22,6 +22,16 @@ class WkhtmltoPdfStatic
     private static ?bool $dockerAvailable = null;
 
     /**
+     * Per-process cache of binary probe results, keyed by path.
+     *
+     * @var array<string, bool>
+     */
+    private static array $probeCache = [];
+
+    /** Timeout in seconds for one binary probe (`--version`) */
+    private static int $probeTimeout = 10;
+
+    /**
      * Include the bootstrap file (once).
      */
     public static function init(): void
@@ -71,9 +81,12 @@ class WkhtmltoPdfStatic
      */
     public static function getStrategy(): string
     {
-        # Prefer direct binary (faster, no container overhead)
+        # Prefer direct binary (faster, no container overhead). It must actually start: a binary
+        # that is executable but cannot load its shared libraries (e.g. one linked against
+        # OpenSSL 1.1 on Ubuntu 22.04+, issue #6) would otherwise be chosen and fail every render,
+        # where falling through to Docker could still work.
         $path = self::getPath();
-        if ($path !== '' && is_executable($path)) {
+        if ($path !== '' && self::probeBinary($path)) {
             return 'binary';
         }
 
@@ -84,6 +97,51 @@ class WkhtmltoPdfStatic
         }
 
         return '';
+    }
+
+    /**
+     * Check that a wkhtmltopdf binary can actually start, by running it with `--version`.
+     *
+     * is_executable() only checks the file mode; it says nothing about whether the dynamic loader
+     * can resolve the binary's shared libraries. A missing library makes the loader exit with
+     * 127 before wkhtmltopdf runs at all, so the exit code of a cheap `--version` call is the
+     * signal. The result is cached per path for the rest of the process, so the probe costs one
+     * extra process start per path, not one per render.
+     *
+     * @param string $path Full path to a candidate binary
+     * @return bool True if it ran and exited 0 within the probe timeout
+     */
+    public static function probeBinary(string $path): bool
+    {
+        if (array_key_exists($path, self::$probeCache)) {
+            return self::$probeCache[$path];
+        }
+
+        # No point starting a process for a path that is not an executable file
+        if ($path === '' || !is_file($path) || !is_executable($path)) {
+            return self::$probeCache[$path] = false;
+        }
+
+        try {
+            $process = new Process([$path, '--version']);
+            $process->setTimeout(self::$probeTimeout);
+            $process->run();
+            $usable = $process->getExitCode() === 0;
+        } catch (\Exception $e) {
+            # Timed out (ProcessTimedOutException) or could not be started at all
+            # (Symfony's RuntimeException): either way not a binary to render with
+            $usable = false;
+        }
+
+        return self::$probeCache[$path] = $usable;
+    }
+
+    /**
+     * Set the timeout for one binary probe. A probe that times out counts as unusable.
+     */
+    public static function setProbeTimeout(int $seconds): void
+    {
+        self::$probeTimeout = $seconds;
     }
 
     /**
