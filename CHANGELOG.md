@@ -13,8 +13,8 @@
   margin, Letter paper) are part of the group. See the README section "Visual check".
 - `restruct/xpdf-static` as a dev dependency, for the visual check.
 - CI runs the visual group on Ubuntu 24.04 in its own step and uploads renders, diff images and
-  proposed baselines when it fails. Baselines are committed for macOS only so far; the Linux ones
-  come from the first CI run.
+  proposed baselines when it fails. Baselines are committed for macOS (bundled binary) and Linux
+  (bundled binary on Ubuntu 24.04, taken from the first CI run).
 
 ## 1.1.0 (2026-10-12)
 

@@ -289,7 +289,9 @@ Fonts and the macOS and Linux builds of wkhtmltopdf render text differently, so 
 are per platform: `tests/Visual/baselines/darwin/` (bundled macOS binary) and
 `tests/Visual/baselines/linux/` (bundled Linux binary on Ubuntu 24.04 with the apt line above).
 The platform is where the rendering happens, so the Docker strategy compares against `linux` even
-on a Mac. Docker on Apple Silicon runs the arm64 image, which is a different build again.
+on a Mac. Between the two, every mm-placed element (frames, rulers, box, image, table) lands on the
+same pixel; only the text differs. On the CI runner the generic `serif` and `monospace` families
+render in a sans-serif font, so name a real font family when a template needs one. Docker on Apple Silicon runs the arm64 image, which is a different build again.
 
 ### Running it
 
