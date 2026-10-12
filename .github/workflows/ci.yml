@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Floor and ceiling of the declared php constraint (>=8.1). They also cover both PHPUnit
+        # majors require-dev allows: 8.1 resolves PHPUnit 10.5, 8.4 resolves 11.5.
+        php: ['8.1', '8.4']
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+          coverage: none
+
+      - name: Install wkhtmltopdf (upstream jammy deb, as the README's native install)
+        # Why not the BUNDLED x64/linux/wkhtmltopdf: it links OpenSSL 1.1 (libssl.so.1.1,
+        # libcrypto.so.1.1; read from its ELF DT_NEEDED entries on 2026-10-12), which Ubuntu
+        # 22.04 and later do not ship. On this runner it is executable but cannot start, and
+        # since bootstrap.php only checks is_executable() the wrapper would still choose it and
+        # every render test would fail. bootstrap.php prefers /usr/local/bin/wkhtmltopdf on Linux,
+        # which is where this deb installs, so the suite runs the same upstream 0.12.6.1-3
+        # patched-Qt build the Docker image is made from.
+        # Why not the Docker fallback: the image runs as root, so the output PDF it writes into
+        # the host's /tmp is root-owned, and /tmp is sticky, so the runner user most likely
+        # cannot delete it and the temp-file tests would fail on that. Inferred from the code
+        # and the Dockerfile (no USER), not run.
+        # Dependency list: README, "Native install on Ubuntu servers" (the xfonts packages are
+        # the ones a bare dpkg -i usually misses).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xfonts-75dpi xfonts-base libfontconfig1 libfreetype6 libjpeg-turbo8 libx11-6 libxext6 libxrender1
+          wget -q https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-3/wkhtmltox_0.12.6.1-3.jammy_amd64.deb
+          sudo apt-get install -y ./wkhtmltox_0.12.6.1-3.jammy_amd64.deb
+          /usr/local/bin/wkhtmltopdf -V
+
+      - name: Show whether the bundled Linux binary can start here (informational)
+        # Never fails the job: it only records, in the log, which shared libraries the bundled
+        # binary is missing on the current runner image.
+        run: |
+          ldd x64/linux/wkhtmltopdf | grep 'not found' || echo 'bundled binary: all libraries found'
+
+      - name: Install dependencies
+        # No composer.lock is committed (it is a library), so this resolves fresh per PHP version.
+        run: composer install --no-interaction --no-progress
+
+      - name: Run tests
+        # --fail-on-skipped: the render tests skip when no wkhtmltopdf can be resolved, which is
+        # right on a developer machine without one but would let CI pass green with nothing
+        # rendered. Here one was installed above, so a skip is a failure.
+        # --fail-on-empty-test-suite: a run that discovers no tests exits non-zero instead of 0.
+        run: vendor/bin/phpunit --fail-on-skipped --fail-on-empty-test-suite
+
+  lint:
+    name: Lint PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.1', '8.4']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: Syntax check every PHP file
+        run: find src tests bootstrap.php -name '*.php' -print0 | xargs -0 -n1 php -l
