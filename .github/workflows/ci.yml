@@ -28,6 +28,8 @@ jobs:
           php-version: ${{ matrix.php }}
           tools: composer:v2
           coverage: none
+          # GD does the pixel comparison of the visual check (tests/Visual)
+          extensions: gd
 
       - name: Install the bundled Linux binary's runtime libraries (README apt line)
         # Since 1.1.0 the suite tests the BUNDLED x64/linux/wkhtmltopdf, not an upstream .deb
@@ -69,7 +71,27 @@ jobs:
         # right on a developer machine without one but would let CI pass green with nothing
         # rendered. Here the bundled binary is checked above, so a skip is a failure.
         # --fail-on-empty-test-suite: a run that discovers no tests exits non-zero instead of 0.
-        run: vendor/bin/phpunit --fail-on-skipped --fail-on-empty-test-suite
+        # The visual group runs in its own step below, so its failures are told apart from these.
+        run: vendor/bin/phpunit --fail-on-skipped --fail-on-empty-test-suite --exclude-group visual
+
+      - name: Visual check (bundled binary against the committed linux baselines)
+        # Renders tests/Visual/fixture with the binary resolved above and compares page count, page
+        # sizes and pixels with tests/Visual/baselines/linux (README "Visual check"). A skip is a
+        # failure here too: it would mean xpdf, GD or the binary went missing and nothing was
+        # compared. Without linux baselines this fails and proposes the render as baselines.
+        env:
+          WKHTMLTOPDF_VISUAL_OUT: ${{ runner.temp }}/visual-out
+        run: vendor/bin/phpunit --group visual --fail-on-skipped --fail-on-empty-test-suite
+
+      - name: Upload visual-check renders, diff images and proposed baselines
+        # Only on failure: the PDFs, page PNGs, red diff images, and under proposed-baselines/
+        # a ready-to-copy baselines tree for a platform that has none yet.
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-out-php${{ matrix.php }}
+          path: ${{ runner.temp }}/visual-out
+          if-no-files-found: ignore
 
   lint:
     name: Lint PHP ${{ matrix.php }}

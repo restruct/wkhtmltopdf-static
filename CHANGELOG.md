@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A visual check (`tests/Visual/`, PHPUnit group `visual`, plus the CLI
+  `tests/Visual/visual-check.php`). It renders a fixed mm-exact fixture and compares page count and
+  page sizes (pdfinfo) exactly and every page's pixels (pdftopng at 100 dpi, GD) against committed
+  per-platform baselines, so a change of wkhtmltopdf version, strategy or host fonts that changes
+  the output fails with a diff image. The CLI also compares two strategies or binaries directly
+  (e.g. `compare bundled docker`). Must-fail controls (smart shrinking on, `--zoom 1.02`, a 4 px
+  margin, Letter paper) are part of the group. See the README section "Visual check".
+- `restruct/xpdf-static` as a dev dependency, for the visual check.
+- CI runs the visual group on Ubuntu 24.04 in its own step and uploads renders, diff images and
+  proposed baselines when it fails. Baselines are committed for macOS (bundled binary) and Linux
+  (bundled binary on Ubuntu 24.04, taken from the first CI run).
+
 ## 1.1.0 (2026-10-12)
 
 ### Changed
