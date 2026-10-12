@@ -51,6 +51,23 @@ class WkhtmltoPdfStatic
     private static string|null|false $dockerUser = false;
 
     /**
+     * Directories whose contents an `--allow` path may never be bind-mounted from under Docker:
+     * the path itself and everything below it is refused. System and secret locations that no
+     * HTML asset belongs in, see dockerMountPath().
+     */
+    private const DOCKER_MOUNT_REFUSED_TREES = [
+        '/proc', '/sys', '/dev', '/etc', '/root', '/boot', '/run', '/var/run',
+        '/private/etc', '/private/var/run', '/System', '/Library',
+    ];
+
+    /**
+     * Parents whose direct children (home directories) are refused as a whole; a folder further
+     * down, e.g. /home/forge/example.com/public/pdf-assets, is fine. A home directory holds
+     * `.ssh`, `.env` files and every site of that user.
+     */
+    private const DOCKER_MOUNT_REFUSED_HOMES = ['/home', '/Users'];
+
+    /**
      * Include the bootstrap file (once).
      */
     public static function init(): void
@@ -178,13 +195,17 @@ class WkhtmltoPdfStatic
      *   owned by the PHP user and can be deleted by it (sticky /tmp). The image has no USER, so
      *   without this the container runs as root (issue #3).
      * - `--network`: only when configured; the default network stays so HTML can load http assets.
+     * - `-v <dir>:<dir>:ro` per read-only mount (from 1.2.0): the `--allow` directories, so a
+     *   file:// URL into them resolves in the container as it does on the host, see dockerAllowMounts().
      *
      * @param string $image Image reference (tag and/or digest)
      * @param string[] $args wkhtmltopdf arguments
      * @param string $containerName Name for the container
      * @param string|null $user `uid:gid`, or null to leave the image's default user (root)
      * @param string $network Network name, empty for Docker's default
-     * @param string $tempDir Host directory mounted at the same path in the container
+     * @param string|string[] $tempDir Host directory mounted read-write at the same path in the
+     *        container; several when the temp dir has two spellings, see runDocker()
+     * @param array<string, string> $readOnlyMounts Container path => host path, mounted read-only
      * @return string[]
      */
     public static function buildDockerCommand(
@@ -193,7 +214,8 @@ class WkhtmltoPdfStatic
         string $containerName,
         ?string $user,
         string $network,
-        string $tempDir
+        string|array $tempDir,
+        array $readOnlyMounts = []
     ): array {
         $command = ['docker', 'run', '--rm', '--init', '--name', $containerName];
 
@@ -207,11 +229,143 @@ class WkhtmltoPdfStatic
             $command[] = $network;
         }
 
-        $command[] = '-v';
-        $command[] = "{$tempDir}:{$tempDir}";
+        foreach ((array) $tempDir as $dir) {
+            $command[] = '-v';
+            $command[] = "{$dir}:{$dir}";
+        }
+
+        # After the temp dir, so a mount below it (never produced by dockerAllowMounts()) would still win
+        foreach ($readOnlyMounts as $target => $source) {
+            $command[] = '-v';
+            $command[] = "{$source}:{$target}:ro";
+        }
+
         $command[] = $image;
 
         return array_merge($command, $args);
+    }
+
+    /**
+     * The read-only bind mounts the Docker strategy needs for the `--allow` paths in $args.
+     *
+     * The container only sees the temp dir otherwise, so an allowed directory outside it would be
+     * allowed by wkhtmltopdf but missing in the container, and every file:// URL into it would
+     * fail. Each `--allow <dir>` (or `--allow=<dir>`) is mounted read-only at the same path,
+     * after dockerMountPath() has checked it. Paths inside the temp dir are left out: that is
+     * already mounted (read-write). Duplicates collapse into one mount.
+     *
+     * @param string[] $args wkhtmltopdf arguments (after applyLocalFileAccessPolicy())
+     * @param string $tempDir The temp dir runDocker() mounts
+     * @return array<string, string> Container path => host path, for buildDockerCommand()
+     * @throws \InvalidArgumentException if an allowed path cannot or may not be mounted
+     */
+    public static function dockerAllowMounts(array $args, string $tempDir): array
+    {
+        $mounts = [];
+        $args = array_values($args);
+
+        # Both spellings of the temp dir: on macOS sys_get_temp_dir() is below /var, a symlink to /private/var
+        $tempRoots = array_unique(array_filter([rtrim($tempDir, '/'), rtrim((string) realpath($tempDir), '/')]));
+
+        $isInTemp = static function (string $candidate) use ($tempRoots): bool {
+            foreach ($tempRoots as $root) {
+                if ($candidate === $root || str_starts_with($candidate, $root . '/')) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+
+        foreach ($args as $i => $arg) {
+            $arg = (string) $arg;
+            if ($arg === '--allow') {
+                $path = (string) ($args[$i + 1] ?? '');
+            } elseif (str_starts_with($arg, '--allow=')) {
+                $path = substr($arg, strlen('--allow='));
+            } else {
+                continue;
+            }
+
+            [$target, $source] = self::dockerMountPath($path);
+
+            if ($isInTemp($source)) {
+                # Already in the container through the temp dir mount
+                continue;
+            }
+            if ($isInTemp($target)) {
+                # A symlink in the temp dir pointing out of it: in the container it would dangle,
+                # and a mount on top of a path inside the temp dir mount is not worth the edge cases
+                throw new \InvalidArgumentException(
+                    "--allow path '{$path}' is a link in the temp dir to '{$source}'; allow '{$source}' itself"
+                );
+            }
+
+            $mounts[$target] = $source;
+        }
+
+        return $mounts;
+    }
+
+    /**
+     * Check that an `--allow` path may be bind-mounted into the container, and resolve it.
+     *
+     * Refused (InvalidArgumentException), for the path as given and for its realpath, so a
+     * symlink cannot point a harmless-looking path at a refused one:
+     * - not absolute, or containing `.`/`..` segments, a `:` or `,` (Docker's mount separators)
+     *   or a NUL byte;
+     * - not an existing directory (a single file: allow its directory instead);
+     * - `/` or any top-level directory (`/var`, `/home`, `/srv`, ...);
+     * - a home directory as a whole (`/home/<user>`, `/Users/<user>`);
+     * - anything in or below DOCKER_MOUNT_REFUSED_TREES (`/etc`, `/proc`, `/root`, ...).
+     *
+     * The container path is the path as given (trailing slash dropped), because that is the
+     * spelling the HTML's file:// URLs and wkhtmltopdf's `--allow` use; the host path is the
+     * realpath, so a symlinked deploy directory (e.g. `current/` -> a release) mounts what it
+     * points at now.
+     *
+     * @return array{0: string, 1: string} [container path, host path]
+     * @throws \InvalidArgumentException
+     */
+    public static function dockerMountPath(string $path): array
+    {
+        $refuse = static function (string $why) use ($path): never {
+            throw new \InvalidArgumentException("--allow path '{$path}' cannot be mounted into the Docker container: {$why}");
+        };
+
+        if ($path === '' || $path[0] !== '/') {
+            $refuse('not an absolute path');
+        }
+        if (strpbrk($path, ":,\0") !== false) {
+            $refuse('contains a colon, comma or NUL byte');
+        }
+        $target = rtrim($path, '/');
+        $segments = explode('/', $target);
+        if (in_array('.', $segments, true) || in_array('..', $segments, true)) {
+            $refuse('contains . or .. segments');
+        }
+
+        $source = realpath($path);
+        if ($source === false || !is_dir($source)) {
+            $refuse('not an existing directory (to allow one file, allow its directory)');
+        }
+
+        foreach (array_unique([$target, $source]) as $candidate) {
+            $depth = count(array_filter(explode('/', $candidate), 'strlen'));
+            if ($depth <= 1) {
+                $refuse("'{$candidate}' is the root or a top-level directory");
+            }
+            if ($depth === 2 && in_array(dirname($candidate), self::DOCKER_MOUNT_REFUSED_HOMES, true)) {
+                $refuse("'{$candidate}' is a whole home directory");
+            }
+            foreach (self::DOCKER_MOUNT_REFUSED_TREES as $tree) {
+                if ($candidate === $tree || str_starts_with($candidate, $tree . '/')) {
+                    $refuse("'{$candidate}' is in {$tree}");
+                }
+            }
+        }
+
+        return [$target, $source];
     }
 
     /**
@@ -373,7 +527,7 @@ class WkhtmltoPdfStatic
      * Execute via Docker container.
      *
      * Mounts the system temp directory so input/output files are accessible
-     * to both host and container.
+     * to both host and container, and (from 1.2.0) each `--allow` directory read-only.
      *
      * The container gets a unique name. When the render does not finish normally (timeout, an
      * exception, or the PHP process ending mid-render) the container is removed by that name:
@@ -384,17 +538,25 @@ class WkhtmltoPdfStatic
     {
         $image = self::getDockerImage();
         $tempDir = sys_get_temp_dir();
+        # Both spellings when the temp dir is behind a symlink: on macOS sys_get_temp_dir() is
+        # /var/folders/..., but tempnam() returns the resolved /private/var/folders/... path, and
+        # the container only had the first, so wkhtmltopdf did not find its input there and tried
+        # it as a URL ("Host private not found"). Seen with OrbStack on macOS.
+        $tempDirs = array_values(array_unique(array_filter([rtrim($tempDir, '/'), rtrim((string) realpath($tempDir), '/')])));
         $name = 'wkhtmltopdf-' . bin2hex(random_bytes(8));
 
         # Build Docker command: docker run --rm -v /tmp:/tmp image [args...]
         # From 1.2.0 also --init, --name, --user uid:gid and optionally --network, see buildDockerCommand()
+        # From 1.2.0 the --allow directories are mounted read-only too; a refused path throws here,
+        # before any container starts
         $command = self::buildDockerCommand(
             $image,
             $args,
             $name,
             self::dockerUser(),
             self::getDockerNetwork(),
-            $tempDir
+            $tempDirs,
+            self::dockerAllowMounts($args, $tempDir)
         );
 
         $process = new Process($command);

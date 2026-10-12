@@ -148,6 +148,10 @@ class WkhtmltoPdf
      *
      * Repeatable, one call per path. wkhtmltopdf 0.12.6 blocks other local files by default,
      * and a blocked one makes the render exit 1. Refused when WKHTMLTOPDF_LOCAL_FILE_ACCESS is 'deny'.
+     *
+     * Under the Docker strategy the path is also bind-mounted read-only into the container at the
+     * same path, so it must then be an existing directory that is not a system or home directory
+     * as a whole; see WkhtmltoPdfStatic::dockerMountPath() for the exact rules.
      */
     public function allowPath(string $path): self
     {
