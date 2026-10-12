@@ -159,10 +159,16 @@ Consequences:
   as given, so `file://` URLs written with the link path work.
 - Mount the narrowest folder that holds the assets (a `pdf-assets/` folder, not the web root): it is
   read-only, but everything in it becomes readable to the HTML.
-- **Output outside the temp dir fails under Docker.** `generateFromHtml($html, '/srv/out/x.pdf')`
-  exits 1 with `Unable to write to destination`: that folder is not in the container. Render with
-  `getOutputFromHtml()` and write the bytes yourself, or give an output path in `sys_get_temp_dir()`
-  and move the file. The binary strategy has no such limit.
+- **Output outside the temp dir** (from 1.2.0): the container renders into a temp file in the temp
+  dir, which is then moved to the requested path (rename, or copy and delete across file systems).
+  Before 1.2.0 `generateFromHtml($html, '/srv/out/x.pdf')` exited 1 with `Unable to write to
+  destination`, because that folder is not in the container. Checked with a real render on
+  2026-10-12: the PDF arrives at the requested path; a render that fails (blocked image, exit 1)
+  keeps its exit code and its file is moved too, as the binary leaves it; a timeout leaves neither a
+  file at the requested path nor a temp file. A render that succeeds but cannot be moved (e.g. the
+  folder does not exist) reports exit 1 with `Could not move the rendered file`. A **relative**
+  output path in a raw `run()` call is passed unchanged and does not work under Docker (it resolves
+  inside the container); the wrapper always passes absolute paths.
 - **macOS temp dir, fixed in 1.2.0:** `sys_get_temp_dir()` is `/var/folders/...`, but `tempnam()`
   returns the resolved `/private/var/folders/...`. With only the first mounted, wkhtmltopdf did not
   find its input in the container and treated it as a URL: `Host private not found`. Both spellings

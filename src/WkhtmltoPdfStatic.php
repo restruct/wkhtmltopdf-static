@@ -545,6 +545,15 @@ class WkhtmltoPdfStatic
         $tempDirs = array_values(array_unique(array_filter([rtrim($tempDir, '/'), rtrim((string) realpath($tempDir), '/')])));
         $name = 'wkhtmltopdf-' . bin2hex(random_bytes(8));
 
+        # An output path outside the temp dir does not exist in the container ("Unable to write to
+        # destination"). Render into a temp file instead and move it there afterwards (from 1.2.0).
+        $requestedOutput = self::dockerOutputRedirect($args, $tempDir);
+        $tmpOutput = null;
+        if ($requestedOutput !== null) {
+            $tmpOutput = self::dockerTempOutput($tempDir, $requestedOutput);
+            $args[array_key_last($args)] = $tmpOutput;
+        }
+
         # Build Docker command: docker run --rm -v /tmp:/tmp image [args...]
         # From 1.2.0 also --init, --name, --user uid:gid and optionally --network, see buildDockerCommand()
         # From 1.2.0 the --allow directories are mounted read-only too; a refused path throws here,
@@ -576,13 +585,122 @@ class WkhtmltoPdfStatic
                 self::removeContainer($name);
             }
             unset(self::$liveContainers[$name]);
+            # Timeout or exception: the container is gone now, so nothing writes the temp output
+            # any more and it can be removed. On success it is moved below and removed after that.
+            if (!$finished && $tmpOutput !== null) {
+                self::removeTempOutput($tmpOutput);
+            }
         }
 
-        return new WkhtmltoPdfResult(
-            $process->getOutput(),
-            $process->getErrorOutput(),
-            $process->getExitCode() ?? -1
-        );
+        $exitCode = $process->getExitCode() ?? -1;
+        $errorOutput = $process->getErrorOutput();
+
+        if ($tmpOutput !== null) {
+            # Moved whatever wkhtmltopdf wrote, also on a non-zero exit: the binary strategy leaves
+            # that file (e.g. the blank PDF after a blocked resource) at the requested path too
+            if (is_file($tmpOutput) && !self::moveFile($tmpOutput, $requestedOutput)) {
+                $errorOutput .= "\nCould not move the rendered file from {$tmpOutput} to {$requestedOutput}";
+                # A render that succeeded must not report success without its file
+                if ($exitCode === 0) {
+                    $exitCode = 1;
+                }
+            }
+            self::removeTempOutput($tmpOutput);
+        }
+
+        return new WkhtmltoPdfResult($process->getOutput(), $errorOutput, $exitCode);
+    }
+
+    /**
+     * The output path to render somewhere else under Docker, or null to leave the arguments as they are.
+     *
+     * wkhtmltopdf takes the output file as its last argument. It needs moving when it is a file
+     * path outside the temp dir (the only writable mount). Not for `-` (stdout), an option as the
+     * last argument (e.g. `-V`), fewer than two arguments, or a relative path: the wrapper always
+     * passes absolute paths, and a relative one is left exactly as before 1.2.0 (it resolves
+     * against the container's working directory, not PHP's, so it is not usable under Docker).
+     *
+     * @param string[] $args wkhtmltopdf arguments
+     * @param string $tempDir The temp dir runDocker() mounts (either spelling)
+     * @return string|null Absolute requested output path
+     */
+    public static function dockerOutputRedirect(array $args, string $tempDir): ?string
+    {
+        $args = array_values($args);
+        if (count($args) < 2) {
+            return null;
+        }
+
+        $output = (string) $args[count($args) - 1];
+        if ($output === '' || $output[0] !== '/') {
+            # Also covers `-` (stdout) and an option such as `-V` in the last position
+            return null;
+        }
+
+        # Compare the output's directory with both spellings of the temp dir (macOS: /var vs /private/var)
+        $dir = dirname($output);
+        $dirReal = realpath($dir);
+        foreach (array_filter([rtrim($tempDir, '/'), rtrim((string) realpath($tempDir), '/')]) as $root) {
+            foreach (array_filter([$dir, $dirReal]) as $candidate) {
+                if ($candidate === $root || str_starts_with($candidate, $root . '/')) {
+                    return null;
+                }
+            }
+        }
+
+        return $output;
+    }
+
+    /**
+     * Move a file, by rename() where possible, else copy and unlink (rename() fails across file
+     * systems, e.g. from a tmpfs /tmp to the disk the site lives on).
+     *
+     * @return bool True if $to holds the file afterwards
+     */
+    public static function moveFile(string $from, string $to): bool
+    {
+        if (@rename($from, $to)) {
+            return true;
+        }
+
+        if (!@copy($from, $to)) {
+            return false;
+        }
+        @unlink($from);
+
+        return true;
+    }
+
+    /**
+     * Reserve a temp output path in the temp dir with the requested file's extension.
+     *
+     * Same reservation scheme as WkhtmltoPdf::createTempPath(): tempnam() creates the bare file,
+     * which is kept so no other call gets the same name, and removeTempOutput() deletes both.
+     * The extension is kept because wkhtmltopdf's sibling tools pick the format from it.
+     *
+     * @throws \RuntimeException if no temp file can be created
+     */
+    private static function dockerTempOutput(string $tempDir, string $requestedOutput): string
+    {
+        $base = tempnam($tempDir, 'wkdock_');
+        if ($base === false) {
+            throw new \RuntimeException('Could not create a temp file in ' . $tempDir);
+        }
+        $ext = pathinfo($requestedOutput, PATHINFO_EXTENSION);
+
+        return $base . ($ext !== '' ? '.' . $ext : '.out');
+    }
+
+    /**
+     * Delete a dockerTempOutput() path and its bare tempnam() reservation.
+     */
+    private static function removeTempOutput(string $path): void
+    {
+        @unlink($path);
+        $base = preg_replace('/\.[^.\/]+$/', '', $path);
+        if ($base !== null && $base !== $path) {
+            @unlink($base);
+        }
     }
 
     /**

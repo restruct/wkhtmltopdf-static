@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- Docker strategy: an output path outside the temp dir no longer fails with "Unable to write to
+  destination". The container renders into a temp file in the temp dir, which is then moved to the
+  requested path (rename, falling back to copy and delete across file systems). The render's own
+  exit code and error output are kept; a successful render whose file cannot be moved reports exit
+  1; the temp file is removed on failure and timeout. Relative output paths in raw `run()` calls are
+  passed unchanged. `WkhtmltoPdfStatic::dockerOutputRedirect()` and `moveFile()`.
 - Docker strategy on macOS: the temp dir is mounted under both its spellings (`/var/folders/...`
   and the resolved `/private/var/folders/...` that `tempnam()` returns). With only the first,
   wkhtmltopdf did not find its input in the container and failed with "Host private not found".

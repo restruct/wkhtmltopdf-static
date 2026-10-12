@@ -73,7 +73,7 @@ each call.
 `WkhtmltoPdfStatic::run()` picks a strategy per call:
 
 1. **`binary`** — if a wkhtmltopdf binary is resolved, it runs as a plain OS process. Fastest; Docker not involved at all.
-2. **`docker`**: otherwise, if a Docker image is configured **and** the Docker daemon responds, each call runs a throwaway container: `docker run --rm --init --name wkhtmltopdf-<random> --user <uid>:<gid> -v /tmp:/tmp <image> <args>`. The system temp dir is volume-mounted so input HTML and output PDF are visible to both host and container, and from 1.2.0 each `allowPath()` folder is mounted read-only at the same path. Nothing else of the host is visible, so an output path outside the temp dir fails under Docker (see [Troubleshooting](docs/troubleshooting.md#under-docker)). ~100 to 300 ms startup overhead per call, no persistent state. See [Docker hardening](#docker-hardening) for what the extra flags do (from 1.2.0).
+2. **`docker`**: otherwise, if a Docker image is configured **and** the Docker daemon responds, each call runs a throwaway container: `docker run --rm --init --name wkhtmltopdf-<random> --user <uid>:<gid> -v /tmp:/tmp <image> <args>`. The system temp dir is volume-mounted so input HTML and output PDF are visible to both host and container, and from 1.2.0 each `allowPath()` folder is mounted read-only at the same path. An output path outside the temp dir is rendered into the temp dir and moved there afterwards (from 1.2.0; see [Troubleshooting](docs/troubleshooting.md#under-docker)). ~100 to 300 ms startup overhead per call, no persistent state. See [Docker hardening](#docker-hardening) for what the extra flags do (from 1.2.0).
 3. Neither available → `RuntimeException`.
 
 ```php
