@@ -2,6 +2,13 @@
     "name": "restruct/wkhtmltopdf-static",
     "description": "Pre-compiled wkhtmltopdf 0.12.6 (patched Qt) with PHP wrapper and Docker support",
     "license": "(MIT AND LGPL-3.0-or-later)",
+    "authors": [
+        {
+            "name": "Restruct",
+            "email": "dev@restruct.nl",
+            "homepage": "https://restruct.nl"
+        }
+    ],
     "require": {
         "php": ">=8.1",
         "symfony/process": "^6.0 || ^7.0"
