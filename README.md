@@ -1,52 +1,64 @@
-# restruct/wkhtmltopdf-static
+# wkhtmltopdf for PHP, bundled
+
+Turn HTML into PDF from PHP with the final wkhtmltopdf release, **0.12.6 (patched Qt)**, without
+installing it on the server: this package bundles the binaries for Linux (0.12.6.1) and macOS, wraps them in a
+fluent PHP API that replaces knplabs/knp-snappy, and falls back to a pinned multi-arch Docker image
+(amd64 and arm64) on hosts where no native binary runs.
 
 *Maintained by [Restruct](https://github.com/restruct). If this package saves you time, you can
 [support ongoing maintenance](https://github.com/sponsors/restruct).*
 
-Pre-built **wkhtmltopdf 0.12.6.1 (patched Qt)** for PHP projects — bundled static-ish binaries, a fluent PHP wrapper, and a multi-arch Docker fallback for platforms without a native binary.
+## wkhtmltopdf is archived, and its binary gets harder to run
 
-> **Why this package exists:** the wkhtmltopdf project is **archived** — 0.12.6.1-3 is the final release, forever. Its binary depends on a patched Qt and a set of aging shared libraries that get harder to satisfy with every new OS release. This package preserves a known-good build in two forms: bundled binaries for platforms that can still run them natively, and a frozen Ubuntu 22.04 Docker image (`ghcr.io/restruct/wkhtmltopdf:0.12.6`, amd64+arm64) for everything else.
->
-> New to Docker or fuzzy on how the pieces fit? Read **[HOW-IT-WORKS.md](HOW-IT-WORKS.md)** — a from-scratch explainer of the image/container/registry/multi-arch story behind this package.
+The wkhtmltopdf project is **archived**: 0.12.6.1-3 is the final release, forever. Its binary
+depends on a patched Qt and a set of aging shared libraries that get harder to satisfy with every
+new OS release. Ubuntu's own `wkhtmltopdf` package is built against unpatched Qt and renders
+differently, there was never an upstream build for Linux ARM64, and a binary that cannot load its
+libraries fails every render.
 
-## Installation
+This package preserves a known-good build in two forms: bundled binaries for platforms that can
+still run them natively, and a frozen Ubuntu 22.04 Docker image
+(`ghcr.io/restruct/wkhtmltopdf:0.12.6`, amd64 and arm64) for everything else. It picks whichever
+works, per call.
 
-```bash
-composer require restruct/wkhtmltopdf-static
-```
+New to Docker or fuzzy on how the pieces fit? Read **[HOW-IT-WORKS.md](HOW-IT-WORKS.md)**, a
+from-scratch explainer of the image/container/registry/multi-arch story behind this package.
 
-Requires PHP ≥ 8.1 and `symfony/process` (^6 or ^7).
-
-## Quick start
+## HTML to PDF in one fluent call
 
 ```php
 use Restruct\WkhtmltoPdf\WkhtmltoPdf;
 
-// HTML string → PDF file
+// HTML string to PDF file
 $result = WkhtmltoPdf::create()
     ->margins('0px', '0px', '0px', '0px')
     ->allowPath('/path/to/assets')  // when HTML references local CSS/images, see "Security"
-    ->disableSmartShrinking()       // fixes 0.12.4→0.12.6 scaling differences
+    ->disableSmartShrinking()       // fixes 0.12.4 to 0.12.6 scaling differences
     ->generateFromHtml($html, '/path/to/output.pdf');
 
-// HTML string → raw PDF bytes (throws RuntimeException on failure)
+// HTML string to raw PDF bytes (throws RuntimeException on failure)
 $pdfBytes = WkhtmltoPdf::create()->getOutputFromHtml($html);
 
-// URL → PDF file
+// URL to PDF file
 WkhtmltoPdf::create()->generateFromUrl('https://example.com/', '/path/to/output.pdf');
 ```
 
-Every wkhtmltopdf CLI option is reachable — common ones have named methods (`pageSize()`, `orientation()`, `dpi()`, `headerHtml()`, `footerCenter()`, `javascriptDelay()`, `username()`/`password()` for HTTP auth, …), everything else via the generic setters:
+Every wkhtmltopdf CLI option is reachable. Common ones have named methods (`pageSize()`,
+`orientation()`, `dpi()`, `headerHtml()`, `footerCenter()`, `javascriptDelay()`,
+`username()`/`password()` for HTTP auth, and more), everything else goes through the generic
+setters:
 
 ```php
 WkhtmltoPdf::create()
-    ->setOption('grayscale', true)                  // boolean flag → --grayscale
+    ->setOption('grayscale', true)                  // boolean flag: --grayscale
     ->setOptions(['page-size' => 'A3', 'dpi' => 300])
     ->timeout(300)                                  // per-call timeout (default 120s)
     ->generateFromHtml($html, $out);
 ```
 
-`generateFromHtml()`/`generateFromUrl()` return a `WkhtmltoPdfResult` (`->isSuccessful()`, `->output`, `->errorOutput`, `->exitCode`); the `getOutput*()` variants return raw bytes and throw on failure.
+`margins()` takes top, right, bottom, left, like CSS. `generateFromHtml()`/`generateFromUrl()`
+return a `WkhtmltoPdfResult` (`->isSuccessful()`, `->output`, `->errorOutput`, `->exitCode`); the
+`getOutput*()` variants return raw bytes and throw on failure.
 
 ### Migrating from knplabs/knp-snappy
 
@@ -61,61 +73,58 @@ $snappy->generateFromHtml($html, $file, $options, true);
 WkhtmltoPdf::create()->setOptions($options)->generateFromHtml($html, $file);
 ```
 
-No binary path needed — resolution is automatic (see below).
+No binary path needed: resolution is automatic (see below).
 
 Like Snappy, `generateFromHtml()` and `generateFromUrl()` create the output file's directory when it
 does not exist yet, and throw a `RuntimeException` when it cannot be created (from 1.0.3). Temp files
 (the HTML input and the `getOutput*()` PDF) are written to `sys_get_temp_dir()` and removed after
-each call.
+each call. Unlike Snappy, this wrapper does not pass `--lowquality` by default.
 
-## How execution works: binary first, Docker fallback
+## Native binary first, Docker where it no longer runs
 
 `WkhtmltoPdfStatic::run()` picks a strategy per call:
 
-1. **`binary`** — if a wkhtmltopdf binary is resolved, it runs as a plain OS process. Fastest; Docker not involved at all.
-2. **`docker`**: otherwise, if a Docker image is configured **and** the Docker daemon responds, each call runs a throwaway container: `docker run --rm --init --name wkhtmltopdf-<random> --user <uid>:<gid> -v /tmp:/tmp <image> <args>`. The system temp dir is volume-mounted so input HTML and output PDF are visible to both host and container, and from 1.2.0 each `allowPath()` folder is mounted read-only at the same path. An output path outside the temp dir is rendered into the temp dir and moved there afterwards (from 1.2.0; see [Troubleshooting](docs/troubleshooting.md#under-docker)). ~100 to 300 ms startup overhead per call, no persistent state. See [Docker hardening](#docker-hardening) for what the extra flags do (from 1.2.0).
-3. Neither available → `RuntimeException`.
+1. **`binary`**: if a wkhtmltopdf binary is resolved, it runs as a plain OS process. Fastest; Docker
+   is not involved at all.
+2. **`docker`**: otherwise, if a Docker image is configured **and** the Docker daemon responds, each
+   call runs a throwaway container:
+   `docker run --rm --init --name wkhtmltopdf-<random> --user <uid>:<gid> -v <tmp>:<tmp> <image> <args>`.
+   The system temp dir is volume-mounted at the same path, so input HTML and output PDF are visible
+   to both host and container, and from 1.2.0 each `allowPath()` folder is mounted read-only at the
+   same path. An output path outside the temp dir is rendered into the temp dir and moved there
+   afterwards (from 1.2.0; see [Troubleshooting](docs/troubleshooting.md#under-docker)). About 100 to
+   300 ms startup overhead per call, no persistent state. See [Docker hardening](#docker-hardening)
+   for what the extra flags do (from 1.2.0).
+3. Neither available: `RuntimeException`.
 
 ```php
 use Restruct\WkhtmltoPdf\WkhtmltoPdfStatic;
 
 WkhtmltoPdfStatic::isAvailable();   // true if either strategy works
 WkhtmltoPdfStatic::getStrategy();   // 'binary' | 'docker' | ''
-WkhtmltoPdfStatic::version();       // "wkhtmltopdf 0.12.6.1 (with patched qt)"
+WkhtmltoPdfStatic::version();       // "wkhtmltopdf 0.12.6.1 (with patched qt)" (macOS binary: 0.12.6)
 ```
-
-### Configuration (constants / environment)
-
-`bootstrap.php` (included automatically on first use, guarded by `defined()` checks) resolves two constants:
-
-| Constant / env var | Resolution order |
-|---|---|
-| `WKHTMLTOPDF_PATH` | 1. pre-defined constant → 2. env var → 3. **macOS:** bundled `x64/mac` binary (runs on Apple Silicon via Rosetta 2) → 4. **Linux:** `/usr/local/bin/wkhtmltopdf` (system install), then bundled `x64/linux` binary |
-| `WKHTMLTOPDF_DOCKER_IMAGE` | 1. pre-defined constant → 2. env var → 3. **Linux default:** `ghcr.io/restruct/wkhtmltopdf:0.12.6@sha256:3b95bf589c125dbcbbb0e33619d1241953d6da019d80272d85858816d01c8396` (pinned by digest from 1.2.0, see [The Docker image](#the-docker-image)) |
-| `WKHTMLTOPDF_DOCKER_NETWORK` | 1. pre-defined constant → 2. env var → 3. empty: Docker's default network (from 1.2.0) |
-| `WKHTMLTOPDF_LOCAL_FILE_ACCESS` | 1. pre-defined constant → 2. env var → 3. `permissive` (from 1.2.0, see [Local file access](#local-file-access)) |
-
-Typical `.env` on a server:
-
-```env
-# Option A: native binary (fastest — preferred where it still runs)
-WKHTMLTOPDF_PATH=/usr/local/bin/wkhtmltopdf
-
-# Option B: Docker (for hosts where the native libs are unavailable/broken)
-# (pinned by digest from 1.2.0; the plain tag still works but follows whatever the tag points at)
-# WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6
-WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6@sha256:3b95bf589c125dbcbbb0e33619d1241953d6da019d80272d85858816d01c8396
-```
-
-If both resolve, the native binary wins.
 
 A binary only counts as resolved if it can actually start (from 1.1.0). Each candidate path is run
 once with `--version` (10 s timeout) and must exit 0; the result is cached for the rest of the PHP
 process, so this costs one extra process start per path, not one per render. A binary that is
 executable but cannot start, for example because a shared library is missing, is skipped: the
-next candidate in the table above is tried, and if none starts the Docker strategy is used. Up to
-1.0.3 only the exec bit was checked, so such a binary was chosen anyway and every render failed.
-`WkhtmltoPdfStatic::probeBinary($path)` runs the same check by hand.
+next candidate in the [resolution order](#configuration-constants-and-environment) is tried, and if
+none starts the Docker strategy is used. Up to 1.0.3 only the exec bit was checked, so such a binary
+was chosen anyway and every render failed. `WkhtmltoPdfStatic::probeBinary($path)` runs the same
+check by hand.
+
+### Platform support
+
+| Platform | Native binary | Docker image |
+|---|---|---|
+| macOS x64 | Yes, bundled (`x64/mac`) | - |
+| macOS ARM (Apple Silicon) | Yes, the bundled x64 binary via Rosetta 2 | Native `linux/arm64` (in OrbStack/Docker Desktop), when you set `WKHTMLTOPDF_DOCKER_IMAGE` |
+| Linux x64 | Yes, bundled (`x64/linux`, Ubuntu 22.04+, see [below](#the-bundled-linux-binary)) or the official deb | `linux/amd64` |
+| Linux ARM64 | No, upstream never shipped one | `linux/arm64` |
+
+The Docker image is the answer for every platform without a workable native binary, and the
+long-term insurance for when OS upgrades break the native ones.
 
 ## Security
 
@@ -194,18 +203,62 @@ Prefer the native binary where it runs. Where Docker is needed, consider
 [rootless Docker](https://docs.docker.com/engine/security/rootless/), whose daemon runs as an
 unprivileged user, so the socket grants that user's rights instead of root.
 
-## Platform support
+## Technical
 
-| Platform | Native binary | Docker image |
-|---|---|---|
-| macOS x64 | ✅ bundled (`x64/mac`) | — |
-| macOS ARM (Apple Silicon) | ✅ bundled x64 binary via Rosetta 2 | ✅ native `linux/arm64` (in OrbStack/Docker Desktop) |
-| Linux x64 | ✅ bundled (`x64/linux`, Ubuntu 22.04+, see [below](#the-bundled-linux-binary)) or system deb | ✅ `linux/amd64` |
-| Linux ARM64 | ❌ upstream never shipped one | ✅ `linux/arm64` |
+### Version compatibility
 
-The Docker image is the answer for every platform without a workable native binary — and the long-term insurance for when OS upgrades break the native ones.
+| Branch | Package version | wkhtmltopdf | PHP | Bundled Linux binary |
+|---|---|---|---|---|
+| `main` | `1.1` - `1.2` | 0.12.6 (macOS), 0.12.6.1 (Linux, Docker), patched Qt | 8.1+ | Ubuntu 22.04+ (OpenSSL 3) |
+| - (tags only) | `1.0.0` - `1.0.3` | 0.12.6 / 0.12.6.1, patched Qt | 8.1+ | older build, OpenSSL 1.1 (Ubuntu 20.04 era) |
 
-## The bundled Linux binary
+`composer.json` is the source of truth for exact constraints. This is a plain PHP package; it does
+not depend on any framework. Upgrading? See [CHANGELOG.md](CHANGELOG.md).
+
+### Requirements and installation
+
+- PHP 8.1 or higher and `symfony/process` ^6 or ^7.
+- A platform from the [platform support](#platform-support) table: on Linux, the runtime libraries
+  of [the bundled Linux binary](#runtime-libraries-ubuntu-2404), or Docker with access to the daemon.
+
+```bash
+composer require restruct/wkhtmltopdf-static
+```
+
+### Configuration (constants and environment)
+
+`bootstrap.php` (included automatically on first use, guarded by `defined()` checks) resolves four
+constants:
+
+| Constant / env var | Resolution order |
+|---|---|
+| `WKHTMLTOPDF_PATH` | 1. pre-defined constant, 2. env var, 3. **macOS:** bundled `x64/mac` binary (runs on Apple Silicon via Rosetta 2), 4. **Linux:** `/usr/local/bin/wkhtmltopdf` (system install), then bundled `x64/linux` binary |
+| `WKHTMLTOPDF_DOCKER_IMAGE` | 1. pre-defined constant, 2. env var, 3. **Linux default:** `ghcr.io/restruct/wkhtmltopdf:0.12.6@sha256:3b95bf589c125dbcbbb0e33619d1241953d6da019d80272d85858816d01c8396` (pinned by digest from 1.2.0, see [The Docker image](#the-docker-image)); no default on macOS |
+| `WKHTMLTOPDF_DOCKER_NETWORK` | 1. pre-defined constant, 2. env var, 3. empty: Docker's default network (from 1.2.0) |
+| `WKHTMLTOPDF_LOCAL_FILE_ACCESS` | 1. pre-defined constant, 2. env var, 3. `permissive` (from 1.2.0, see [Local file access](#local-file-access)) |
+
+Every candidate for `WKHTMLTOPDF_PATH`, the env var included, must pass the start-up probe
+described above.
+
+Typical `.env` on a server:
+
+```env
+# Option A: native binary (fastest, preferred where it still runs)
+WKHTMLTOPDF_PATH=/usr/local/bin/wkhtmltopdf
+
+# Option B: Docker (for hosts where the native libs are unavailable/broken)
+# (pinned by digest from 1.2.0; the plain tag still works but follows whatever the tag points at)
+# WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6
+WKHTMLTOPDF_DOCKER_IMAGE=ghcr.io/restruct/wkhtmltopdf:0.12.6@sha256:3b95bf589c125dbcbbb0e33619d1241953d6da019d80272d85858816d01c8396
+```
+
+If both resolve, the native binary wins.
+
+Timeouts: every render runs with a 120 s timeout by default; `timeout()` changes it per call and
+`WkhtmltoPdfStatic::setDefaultTimeout()` for the process. `WkhtmltoPdfStatic::setProbeTimeout()`
+changes the 10 s start-up probe.
+
+### The bundled Linux binary
 
 `x64/linux/wkhtmltopdf` is the upstream wkhtmltopdf 0.12.6.1 (patched Qt) binary, taken unchanged
 from the official Ubuntu 22.04 (jammy) amd64 package (from 1.1.0). It links OpenSSL 3, so it runs
@@ -231,7 +284,7 @@ sha256sum wkhtmltox_0.12.6.1-3.jammy_amd64.deb
 dpkg-deb -x wkhtmltox_0.12.6.1-3.jammy_amd64.deb deb && sha256sum deb/usr/local/bin/wkhtmltopdf
 ```
 
-### Runtime libraries (Ubuntu 24.04)
+#### Runtime libraries (Ubuntu 24.04)
 
 The binary links these shared libraries (its ELF `DT_NEEDED` list): `libjpeg.so.8`,
 `libpng16.so.16`, `libXrender.so.1`, `libfontconfig.so.1`, `libfreetype.so.6`, `libX11.so.6`,
@@ -259,9 +312,10 @@ The upstream `.deb` also depends on `xfonts-75dpi` and `xfonts-base` (X bitmap f
 starts and renders without them; install them only if your HTML relies on those fonts. CI runs the
 test suite against the bundled binary on Ubuntu 24.04 with exactly the apt line above.
 
-## The Docker image
+### The Docker image
 
-`ghcr.io/restruct/wkhtmltopdf:0.12.6`: public, multi-arch (`linux/amd64` + `linux/arm64`). Ubuntu 22.04 with the official final wkhtmltopdf deb and all runtime libraries frozen in.
+`ghcr.io/restruct/wkhtmltopdf:0.12.6`: public, multi-arch (`linux/amd64` + `linux/arm64`). Ubuntu
+22.04 with the official final wkhtmltopdf deb and all runtime libraries frozen in.
 
 From 1.2.0 the default reference is pinned to the digest of the multi-platform index:
 
@@ -293,16 +347,25 @@ build/build.sh --push   # build amd64+arm64 and push manifest to ghcr.io
                         # (requires: docker login ghcr.io with a write:packages token)
 ```
 
-Server deployment (pulling the image, adding the PHP user to the docker group, a deploy-script line) is outlined in [HOW-IT-WORKS.md](HOW-IT-WORKS.md#deployment-on-a-newupgraded-server-the-insurance-policy-activated); keep host-specific notes in your own project docs.
+Server deployment (pulling the image, adding the PHP user to the docker group, a deploy-script
+line) is outlined in
+[HOW-IT-WORKS.md](HOW-IT-WORKS.md#deployment-on-a-newupgraded-server-the-insurance-policy-activated);
+keep host-specific notes in your own project docs.
 
-## Native install on Ubuntu servers (verified on 22.04 jammy AND 24.04 noble)
+### Native install on Ubuntu servers (verified on 22.04 jammy and 24.04 noble)
 
 Hard-won gotchas from getting this running on a production server:
 
-- **Do NOT use Ubuntu's own `wkhtmltopdf` package** — it's built against *unpatched* system Qt (different rendering, missing features such as native headers/footers). Remove it if present; its output does not match the patched-Qt build used everywhere else.
-- **Upstream ships no 24.04 (noble) deb** — the jammy deb installs and runs fine on 24.04 once the font dependencies are in place.
-- **`xfonts-75dpi` / `xfonts-base` are not preinstalled** on typical server images, so a bare `dpkg -i` fails on unmet dependencies. Install them first (or rescue a half-installed state with `apt --fix-broken install`).
-- The official deb installs to **`/usr/local/bin/wkhtmltopdf`** (the distro package used `/usr/bin`) — this matches `bootstrap.php`'s Linux candidate order.
+- **Do NOT use Ubuntu's own `wkhtmltopdf` package**: it is built against *unpatched* system Qt
+  (different rendering, missing features such as native headers/footers). Remove it if present;
+  its output does not match the patched-Qt build used everywhere else.
+- **Upstream ships no 24.04 (noble) deb**: the jammy deb installs and runs fine on 24.04 once the
+  font dependencies are in place.
+- **`xfonts-75dpi` / `xfonts-base` are not preinstalled** on typical server images, so a bare
+  `dpkg -i` fails on unmet dependencies. Install them first (or rescue a half-installed state with
+  `apt --fix-broken install`).
+- The official deb installs to **`/usr/local/bin/wkhtmltopdf`** (the distro package used
+  `/usr/bin`), which is the first Linux candidate in `bootstrap.php`.
 
 ```bash
 # 1. Remove the distro package if present (unpatched Qt!)
@@ -318,24 +381,25 @@ sudo dpkg -i wkhtmltox_0.12.6.1-3.jammy_amd64.deb
 sudo apt-get install -f        # safety net: configures + pulls any remaining deps
 
 # 4. Verify
-which wkhtmltopdf              # → /usr/local/bin/wkhtmltopdf
-wkhtmltopdf -V                 # → wkhtmltopdf 0.12.6.1 (with patched qt)
+which wkhtmltopdf              # /usr/local/bin/wkhtmltopdf
+wkhtmltopdf -V                 # wkhtmltopdf 0.12.6.1 (with patched qt)
 ```
 
-## Package contents
+### Package contents
 
 ```
 bootstrap.php        constant resolution (WKHTMLTOPDF_PATH / _DOCKER_IMAGE / _DOCKER_NETWORK / _LOCAL_FILE_ACCESS)
 src/
-  WkhtmltoPdf.php        fluent HTML→PDF API (Snappy replacement)
+  WkhtmltoPdf.php        fluent HTML to PDF API (Snappy replacement)
   WkhtmltoPdfStatic.php  strategy resolution + process execution
   WkhtmltoPdfResult.php  output/errorOutput/exitCode value object
-x64/mac/, x64/linux/     bundled 0.12.6.1 patched-Qt binaries
-build/                   Dockerfile + multi-arch build script
+x64/mac/, x64/linux/     bundled patched-Qt binaries (macOS 0.12.6, Linux 0.12.6.1)
+docs/                    troubleshooting notes
+build/                   Dockerfile + multi-arch build script (not in dist installs)
 tests/                   PHPUnit suite and the visual check (not in dist installs)
 ```
 
-## Running the tests
+### Running the tests
 
 ```bash
 composer install
@@ -345,7 +409,7 @@ vendor/bin/phpunit
 The render tests need a working wkhtmltopdf (the bundled binary or the Docker image) and are
 skipped without one.
 
-## Visual check
+### Visual check: catching layout drift between hosts
 
 A change of wkhtmltopdf version, of strategy (bundled binary, native install, Docker) or of the
 fonts on a host can change the size and placement of everything on a page without any error. The
@@ -363,7 +427,7 @@ What it compares, per render:
   image (differing pixels red over a washed-out expected page) to `tests/Visual/out/` (or
   `$WKHTMLTOPDF_VISUAL_OUT`).
 
-### The fixture
+#### The fixture
 
 `tests/Visual/fixture/` holds plain HTML and CSS with everything sized in mm: a frame exactly on
 the paper edge and one 10 mm in, rulers with a tick per mm, a 50 x 50 mm box, a generated PNG
@@ -389,7 +453,7 @@ as a `data:` URI, and with `--javascript-delay 1000`) and used a system font in 
 no fixed baseline can absorb. Keep that in mind for real templates too. Later measurements
 (webfont formats, `javascript-delay`, Docker): [docs/troubleshooting.md](docs/troubleshooting.md#fonts).
 
-### Baselines per platform
+#### Baselines per platform
 
 Fonts and the macOS and Linux builds of wkhtmltopdf render text differently, so the baseline PNGs
 are per platform: `tests/Visual/baselines/darwin/` (bundled macOS binary) and
@@ -404,7 +468,7 @@ image, a different build; for this fixture its pages are pixel-identical to the 
 the bundled binary on a stock Ubuntu 24.04, and all three differ from the `linux` baselines only in
 the text samples, because the GitHub runner has more fonts installed (measured 2026-10-12).
 
-### Running it
+#### Running it
 
 ```bash
 vendor/bin/phpunit --group visual                                   # strategy "auto"
@@ -435,7 +499,7 @@ php tests/Visual/visual-check.php baseline --strategy=bundled                 # 
 Exit code 0 is a pass, 1 differences, 2 a usage error or missing prerequisite. Look at new
 baseline PNGs before committing them: a baseline is a claim that this output is right.
 
-### What it showed on the bundled macOS binary (0.12.6)
+#### What it showed on the bundled macOS binary (0.12.6)
 
 Measured with `compare bundled bundled --b-opt=...` against the `fullbleed` case:
 
@@ -452,18 +516,22 @@ Measured with `compare bundled bundled --b-opt=...` against the `fullbleed` case
 - `page-break-after: avoid` on the line after a heading is not honoured; `page-break-inside:
   avoid` on a block is.
 
-## Troubleshooting
+### Troubleshooting
 
 [docs/troubleshooting.md](docs/troubleshooting.md) collects what we measured: fonts (generic
 families on Linux, WOFF2, webfonts on the macOS binary), local file access per mode and under
 Docker, page size and smart shrinking, binaries that do not start (exit 127), timeouts and leftover
 containers, and how to verify a restored image backup.
 
-## License
+### Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
+### License
 
 - Wrapper code (`bootstrap.php`, `src/`, `build/`): MIT (Copyright Restruct). Up to 1.0.1 the
   wrapper was LGPL-3.0-only; from 1.0.2 it is MIT.
-- Bundled binaries (`x64/`) and the Docker image: wkhtmltopdf 0.12.6.1 (patched Qt), prebuilt by the
+- Bundled binaries (`x64/`) and the Docker image: wkhtmltopdf 0.12.6 / 0.12.6.1 (patched Qt), prebuilt by the
   upstream project, not by us, and not covered by the MIT licence. wkhtmltopdf is Copyright its
   authors and licensed under the GNU LGPL version 3 or later; the patched Qt 4.8.7 it contains is
   licensed by The Qt Company under the GNU LGPL version 2.1 or 3 with the Qt LGPL Exception 1.1.
