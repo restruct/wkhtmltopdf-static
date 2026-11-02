@@ -1,6 +1,7 @@
 {
     "name": "restruct/wkhtmltopdf-static",
-    "description": "Pre-compiled wkhtmltopdf 0.12.6 (patched Qt) with PHP wrapper and Docker support",
+    "description": "Pre-compiled wkhtmltopdf 0.12.6 (patched Qt) for Linux and macOS, with a fluent PHP wrapper that replaces knp-snappy and a multi-arch Docker fallback",
+    "keywords": ["php", "pdf", "wkhtmltopdf", "html-to-pdf", "knp-snappy", "docker", "static-binaries"],
     "license": "(MIT AND LGPL-3.0-or-later)",
     "authors": [
         {

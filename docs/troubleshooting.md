@@ -6,7 +6,7 @@ we ran or from a test in this repository; anything we did not run is marked **un
 
 Measured on 2026-10-12 unless noted, with:
 
-- the bundled macOS binary (`x64/mac/wkhtmltopdf`, 0.12.6.1, x86_64 under Rosetta 2 on Apple Silicon);
+- the bundled macOS binary (`x64/mac/wkhtmltopdf`, 0.12.6, x86_64 under Rosetta 2 on Apple Silicon);
 - the Docker image `ghcr.io/restruct/wkhtmltopdf:0.12.6` (arm64 and amd64 variants of the pinned
   index, loaded from the release backup; Docker 29.4.0 in OrbStack);
 - the bundled Linux binary inside an `ubuntu:24.04` amd64 container with exactly the README apt line
